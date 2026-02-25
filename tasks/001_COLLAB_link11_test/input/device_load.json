@@ -1,0 +1,16 @@
+{
+    "_注释_data_path":    "数据路径，可以是单个.pkl文件 或 包含多个batch_xxxx.pkl的目录",
+    "data_path": "dataset/link11",
+
+    "_注释_dataset_type": "数据集类型，决定标签映射：link11(7类) / rml2016(6类) / radar(7类)",
+    "dataset_type": "link11",
+
+    "_注释_batch_size":   "推理时每批送入模型的样本数，不是数据文件的batch，影响GPU显存占用",
+    "batch_size": 32,
+
+    "_注释_max_files":    "目录模式下最多加载几个batch文件，null=全部加载(140个≈11GB)，3=快速测试",
+    "max_files": 10,
+
+    "_注释_num_batches":  "限制总样本数=num_batches×batch_size，null=不限制，用于快速测试",
+    "num_batches": null
+}

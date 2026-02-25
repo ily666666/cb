@@ -1,0 +1,31 @@
+{
+    "_注释_student_model_type": "学生模型类型（边侧轻量模型）",
+    "student_model_type": "real_resnet20_link11_h",
+
+    "_注释_num_classes": "分类数",
+    "num_classes": 7,
+
+    "_注释_dataset_type": "数据集类型",
+    "dataset_type": "link11",
+
+    "_注释_data_path": "云侧数据路径（蒸馏阶段用云侧的全量数据训练学生）",
+    "data_path": "dataset/splits/link11/cloud_data.pkl",
+
+    "_注释_epochs": "蒸馏训练轮数",
+    "epochs": 30,
+
+    "_注释_kd_alpha": "软标签权重(0~1)。0.7=总损失中70%来自教师知识、30%来自硬标签",
+    "kd_alpha": 0.7,
+
+    "_注释_temperature": "蒸馏温度，必须和 cloud_kd 阶段一致",
+    "temperature": 4.0,
+
+    "_注释_batch_size": "训练批次大小",
+    "batch_size": 128,
+
+    "_注释_learning_rate": "学习率",
+    "learning_rate": 0.001,
+
+    "_注释_device": "计算设备",
+    "device": "cuda:0"
+}

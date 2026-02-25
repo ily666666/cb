@@ -1,0 +1,7 @@
+{
+    "data_path": "dataset/rml2016",
+    "dataset_type": "rml2016",
+    "batch_size": 32,
+    "max_files": 10,
+    "num_batches": null
+}

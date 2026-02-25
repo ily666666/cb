@@ -1,0 +1,137 @@
+========================================
+ 数据预划分
+========================================
+# 使用数据预划分脚本将数据集物理分割成云侧和边侧的独立文件
+
+# Link11 数据集预划分
+python run/prepare_data_splits.py --dataset_type link11 --data_path E:\3dataset\link11.pkl --num_edges 2 --dirichlet_alpha 0.3 --cloud_ratio 0.8 --output_dir E:\3dataset
+
+# 参数说明：
+# --dataset_type: 数据集类型（link11/rml2016/radar）
+# --data_path: 原始数据集路径
+# --num_edges: 边侧数量
+# --dirichlet_alpha: Dirichlet分布参数
+# --cloud_ratio: 云侧数据比例
+# --output_dir: 输出目录
+
+# 输出结构：
+# {output_dir}/{dataset_type}/
+# ├── cloud_data.pkl      # 云侧数据
+# ├── edge_1_data.pkl     # 边侧1数据
+# └── edge_2_data.pkl      # 边侧2数据
+
+
+
+
+========================================
+场景1: 云侧教师模型预训练
+========================================
+python run/cloud/run_cloud_pretrain.py --dataset_type link11 --num_classes 7 --data_path E:\3dataset\link11\cloud_data.pkl --cloud_model complex_tiny_link11 --cloud_epochs 10 --batch_size 128
+
+
+========================================
+场景2: 边侧知识蒸馏
+========================================
+# 终端1: 启动云侧KD服务器（分发教师模型）
+python run/cloud/run_cloud_kd.py --dataset_type link11 --num_classes 7 --cloud_model complex_tiny_link11 --teacher_model_path run/cloud/pth/link11/teacher_model.pth --num_edges 2
+
+# 终端2: 边侧1知识蒸馏（基础实值学生模型）
+python run/edge/run_edge_kd.py --edge_id 1 --cloud_host localhost --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --data_path E:\3dataset\link11\edge_1_data.pkl --kd_epochs 10 --batch_size 32
+
+# 终端3: 边侧2知识蒸馏（基础实值学生模型）
+python run/edge/run_edge_kd.py --edge_id 2 --cloud_host localhost --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --data_path E:\3dataset\link11\edge_2_data.pkl --kd_epochs 10 --batch_size 32
+
+
+========================================
+场景3: 联邦学习
+========================================
+# 终端1: 启动云侧联邦学习服务器（基础实值模型）
+python run/cloud/run_cloud_federated.py --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --num_edges 2 --num_rounds 10
+
+# 终端2: 边侧1联邦学习（基础实值模型）
+python run/edge/run_edge_federated.py --edge_id 1 --cloud_host localhost --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --data_path E:\3dataset\link11\edge_1_data.pkl --num_rounds 20 --local_epochs 1 --batch_size 32
+
+# 终端3: 边侧2联邦学习（基础实值模型）
+python run/edge/run_edge_federated.py --edge_id 2 --cloud_host localhost --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --data_path E:\3dataset\link11\edge_2_data.pkl --num_rounds 20 --local_epochs 1 --batch_size 32
+
+
+========================================
+场景4: 端侧设备数据发送
+========================================
+# 端侧设备模拟器 - 支持三种数据集（Link11, RML2016, Radar）
+# 支持两种工作模式：edge（发送到边侧）和 cloud（直接发送到云侧）
+
+# ========== 模式1: edge 模式（端→边→云） ==========
+# 端侧生成数据并发送到边侧，由边侧进行协同推理
+
+# Link11 数据集
+python run/device/run_device.py --mode edge --dataset_type link11 --edge_host localhost --zmq_push_port 7777 --batch_size 100 --interval 0.1 --total_samples 10000
+
+
+# ========== 模式2: cloud 模式（端→云） ==========
+# 端侧直接连接云侧进行推理，用于性能对比和模型测试
+
+# Link11 数据集（直连云侧）
+python run/device/run_device.py --mode cloud --dataset_type link11 --cloud_host localhost --zmq_push_port 5555 --batch_size 100 --total_samples 10000
+
+# 注意：
+# - edge 模式：端侧只负责数据传输，推理由边侧和云侧完成
+# - cloud 模式：端侧只负责数据传输，推理准确率由云侧统计并输出
+# - 参数统一使用 --zmq_push_port 指定推送目标端口
+
+========================================
+场景5: 云边协同推理 - 三层架构
+========================================
+
+# ============================================
+# RML2016 数据集 - 完整三层架构示例
+# ============================================
+
+# 1. 启动云侧服务器（教师模型）
+# 注意：inference_queue_size 默认改为 50，避免队列堆积占用内存/显存
+# 如果需要更大的缓冲，可以手动指定（建议10-100之间）
+python run\cloud\run_cloud_collaborative.py --dataset_type rml2016 --num_classes 6 --cloud_model_path run\cloud\pth\rml2016\teacher_model.pth --cloud_model complex_resnet50_rml2016_with_attention --zmq_pull_port 5555 --zmq_push_port 5556 --num_workers 16 --inference_queue_size 50 --batch_inference --batch_timeout 0.1
+
+# 2. 启动边侧推理（学生模型，从端侧接收数据）
+python run\edge\run_edge_collaborative.py --dataset_type rml2016 --num_classes 6 --edge_model_path run\edge\pth\rml2016\edge_1_federated_model.pth --edge_model real_resnet20_rml2016_h --cloud_host localhost --zmq_pull_port 5555 --zmq_push_port 5556 --device_port 7777 --thresholds 0.7 --data_source device
+
+# 3. 启动端侧数据发送（发送到边侧）
+python run\device\run_device.py --mode edge --dataset_type rml2016 --data_source local --data_path E:\BaiduNet_Download\dataGen\rml2016_5000num_waypoints --edge_host localhost --zmq_push_port 7777 --batch_size 128 --interval 0.001
+
+# 数据流：端侧(7777) → 边侧(device_port=7777接收, zmq_pull_port=5555发送) → 云侧(zmq_pull_port=5555接收)
+
+# ============================================
+# Link11 数据集示例
+# ============================================
+
+# 终端1: 云侧服务器（基础复值教师模型）
+# 注意：inference_queue_size 默认改为 50，避免队列堆积占用内存/显存
+python run/cloud/run_cloud_collaborative.py --dataset_type link11 --num_classes 7 --cloud_model complex_tiny_link11 --cloud_model_path run/cloud/pth/link11/teacher_model.pth --zmq_pull_port 5555 --zmq_push_port 5556 --num_workers 4 --inference_queue_size 50
+
+# 终端2: 边侧客户端（使用联邦学习后的基础实值模型）
+# 方式1: 从本地文件加载数据（默认模式）
+python run/edge/run_edge_collaborative.py --edge_id 1 --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --edge_model_path run/edge/pth/link11/edge_1_federated_model.pth --data_path E:\1Experiments\project0115\run\data\link11.pkl --thresholds 0.5 --batch_size 32
+
+# 方式2: 从端侧设备接收实时数据（device 模式）
+python run/edge/run_edge_collaborative.py --edge_id 1 --dataset_type link11 --num_classes 7 --edge_model real_tiny_link11 --edge_model_path run/edge/pth/link11/edge_1_federated_model.pth --data_source device --device_port 7777 --thresholds 0.5 --batch_size 32
+
+# 终端3: 端侧设备（发送到边侧）
+python run/device/run_device.py --mode edge --dataset_type link11 --edge_host localhost --zmq_push_port 7777 --batch_size 100 --interval 0.1 --total_samples 10000
+
+
+========================================
+端口配置说明
+========================================
+# 统一使用 --zmq_push_port 参数指定数据推送的目标端口
+
+# 端侧 → 边侧：
+#   端侧: --zmq_push_port 7777 (推送到边侧)
+#   边侧: --device_port 7777 (监听端侧数据)
+
+# 边侧 → 云侧：
+#   边侧: --zmq_pull_port 5555 (推送到云侧)
+#   云侧: --zmq_pull_port 5555 (监听边侧请求)
+
+# 云侧 → 边侧：
+#   云侧: --zmq_push_port 5556 (推送响应到边侧)
+#   边侧: --zmq_push_port 5556 (接收云侧响应)

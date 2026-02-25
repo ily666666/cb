@@ -1,0 +1,28 @@
+{
+    "_注释_data_path": "云侧预划分数据，由 run/prepare_data_splits.py 生成",
+    "data_path": "dataset/splits/radar/cloud_data.pkl",
+
+    "_注释_dataset_type": "数据集类型",
+    "dataset_type": "radar",
+
+    "_注释_model_type": "教师模型类型（云侧大模型）",
+    "model_type": "complex_resnet50_radar_with_attention",
+
+    "_注释_num_classes": "分类数，radar=7",
+    "num_classes": 7,
+
+    "_注释_epochs": "训练轮数",
+    "epochs": 50,
+
+    "_注释_batch_size": "训练批次大小",
+    "batch_size": 128,
+
+    "_注释_learning_rate": "初始学习率",
+    "learning_rate": 0.001,
+
+    "_注释_weight_decay": "L2 正则化系数",
+    "weight_decay": 1e-4,
+
+    "_注释_device": "训练设备",
+    "device": "cuda:0"
+}

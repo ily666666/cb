@@ -1,0 +1,25 @@
+{
+    "_注释_model_path":   "云侧模型权重文件路径(.pth)",
+    "model_path": "cloud_pth/rml2016/teacher_model.pth",
+
+    "_注释_model_type":   "模型类型名",
+    "model_type": "complex_resnet50_rml2016_with_attention",
+
+    "_注释_num_classes":  "分类数，rml2016=6",
+    "num_classes": 6,
+
+    "_注释_device":       "计算设备",
+    "device": "cuda:0",
+
+    "_注释_batch_size":   "推理批次大小",
+    "batch_size": 32,
+
+    "_注释_simulate_bandwidth_mbps": "模拟网络带宽(MB/s)。边侧→云侧=10",
+    "simulate_bandwidth_mbps": 10,
+
+    "_注释_input_data":   "协同模式下source=edge_infer，读取边侧筛选出的低置信度样本",
+    "input_data": {
+        "source": "edge_infer",
+        "signals_file": "low_conf_signals.pkl"
+    }
+}

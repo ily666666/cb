@@ -1,0 +1,34 @@
+{
+    "_注释_edge_data_paths": "各边侧节点的本地数据文件列表，每个文件模拟一个边侧。由 training_data_generation 按 Dirichlet 分布划分生成",
+    "edge_data_paths": [
+        "dataset/splits/link11/edge_1_data.pkl",
+        "dataset/splits/link11/edge_2_data.pkl"
+    ],
+
+    "_注释_dataset_type": "数据集类型",
+    "dataset_type": "link11",
+
+    "_注释_edge_model_type": "边侧模型类型",
+    "edge_model_type": "real_resnet20_link11_h",
+
+    "_注释_num_classes": "分类数",
+    "num_classes": 7,
+
+    "_注释_num_rounds": "联邦学习通信轮数，每轮各边侧本地训练后聚合一次",
+    "num_rounds": 20,
+
+    "_注释_local_epochs": "每轮中每个边侧的本地训练轮数",
+    "local_epochs": 3,
+
+    "_注释_batch_size": "本地训练批次大小，联邦学习一般用较小的batch",
+    "batch_size": 128,
+
+    "_注释_learning_rate": "本地训练学习率",
+    "learning_rate": 0.001,
+
+    "_注释_device": "计算设备",
+    "device": "cuda:0",
+
+    "_注释_init_model_path": "全局模型初始权重。填蒸馏产出的student_model.pth可加速收敛，null=随机初始化",
+    "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth"
+}

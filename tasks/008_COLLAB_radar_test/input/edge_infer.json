@@ -1,0 +1,28 @@
+{
+    "_注释_model_path":   "边侧模型权重文件路径(.pth)",
+    "model_path": "edge_pth/radar/edge_1_federated_model.pth",
+
+    "_注释_model_type":   "模型类型名",
+    "model_type": "real_resnet20_radar_h",
+
+    "_注释_num_classes":  "分类数，radar=7",
+    "num_classes": 7,
+
+    "_注释_device":       "计算设备",
+    "device": "cuda:0",
+
+    "_注释_confidence_threshold": "置信度阈值：低于此值的样本转发云侧",
+    "confidence_threshold": 0.7,
+
+    "_注释_batch_size":   "推理批次大小",
+    "batch_size": 32,
+
+    "_注释_simulate_bandwidth_mbps": "模拟网络带宽(MB/s)",
+    "simulate_bandwidth_mbps": 100,
+
+    "_注释_input_data":   "输入数据来源",
+    "input_data": {
+        "source": "device_load",
+        "file_name": "data_batch.pkl"
+    }
+}

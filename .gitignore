@@ -1,0 +1,31 @@
+run/data/*
+run/data_split/*
+run/pth/*
+results/*
+*.pth
+*.pkl
+*.mat
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+dataset/*
+
+# Experiments & results
+results/
+result_edge_cloud_collaborative/
+
+# Logs
+*.log
+
+# Env
+.env
+.env.*
+
+.kiro/
+
+tasks/*/output/*
+tasks/*/result/*
+
+*.zip

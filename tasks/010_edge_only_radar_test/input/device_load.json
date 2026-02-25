@@ -1,0 +1,7 @@
+{
+    "data_path": "dataset/radar",
+    "dataset_type": "radar",
+    "batch_size": 32,
+    "max_files": 10,
+    "num_batches": null
+}

@@ -1,0 +1,25 @@
+{
+    "_注释_teacher_model_path": "教师模型权重路径",
+    "teacher_model_path": "tasks/012_train_radar/output/cloud_pretrain/teacher_model.pth",
+
+    "_注释_teacher_model_type": "教师模型类型",
+    "teacher_model_type": "complex_resnet50_radar_with_attention",
+
+    "_注释_num_classes": "分类数",
+    "num_classes": 7,
+
+    "_注释_dataset_type": "数据集类型",
+    "dataset_type": "radar",
+
+    "_注释_data_path": "云侧数据路径，和预训练用同一份",
+    "data_path": "dataset/splits/radar/cloud_data.pkl",
+
+    "_注释_temperature": "蒸馏温度",
+    "temperature": 4.0,
+
+    "_注释_batch_size": "生成软标签时的批次大小",
+    "batch_size": 128,
+
+    "_注释_device": "计算设备",
+    "device": "cuda:0"
+}

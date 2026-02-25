@@ -1,0 +1,7 @@
+{
+    "data_path": "dataset/link11",
+    "dataset_type": "link11",
+    "batch_size": 32,
+    "max_files": 10,
+    "num_batches": null
+}

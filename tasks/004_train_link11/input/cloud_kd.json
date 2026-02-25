@@ -1,0 +1,25 @@
+{
+    "_注释_teacher_model_path": "教师模型权重路径。串联预训练时填预训练输出路径；已有权重时填 cloud_pth/link11/teacher_model.pth",
+    "teacher_model_path": "tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth",
+
+    "_注释_teacher_model_type": "教师模型类型，需和权重文件对应",
+    "teacher_model_type": "complex_resnet50_link11_with_attention",
+
+    "_注释_num_classes": "分类数",
+    "num_classes": 7,
+
+    "_注释_dataset_type": "数据集类型",
+    "dataset_type": "link11",
+
+    "_注释_data_path": "云侧数据路径，和预训练用同一份",
+    "data_path": "dataset/splits/link11/cloud_data.pkl",
+
+    "_注释_temperature": "蒸馏温度，越高软标签越平滑。需和 edge_kd 保持一致，通常 2.0~8.0",
+    "temperature": 4.0,
+
+    "_注释_batch_size": "生成软标签时的批次大小",
+    "batch_size": 128,
+
+    "_注释_device": "计算设备",
+    "device": "cuda:0"
+}

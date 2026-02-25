@@ -1,0 +1,12 @@
+{
+    "model_path": "edge_pth/rml2016/edge_1_federated_model.pth",
+    "model_type": "real_resnet20_rml2016_h",
+    "num_classes": 6,
+    "device": "cuda:0",
+    "batch_size": 32,
+    "simulate_bandwidth_mbps": 100,
+    "input_data": {
+        "source": "device_load",
+        "file_name": "data_batch.pkl"
+    }
+}
