@@ -236,12 +236,13 @@ python run_task.py --mode device_to_edge_to_cloud --task_id 005_COLLAB_rml2016_t
 #### radar 数据集
 
 ```bash
-# 1. 生成推理测试数据（需要 MATLAB 运行）
-#    在 MATLAB 中执行 test_data_generation/RadarSignalGenerator_Batch.m
-#    输出到 dataset/radar/ 目录
+# 1. 生成推理测试数据（自动输出到 dataset/radar/）
+python test_data_generation/radar_signal_generator_batch.py
+#    （MATLAB 版本：在 MATLAB 中执行 test_data_generation/RadarSignalGenerator_Batch.m）
 
-# 2. 生成训练用原始信号数据（需要 MATLAB 运行）
-#    在 MATLAB 中执行 training_data_generation/RadarSignalGenerator_Batch2.m
+# 2. 生成训练用原始信号数据
+python training_data_generation/radar_signal_generator.py
+#    （MATLAB 版本：在 MATLAB 中执行 training_data_generation/RadarSignalGenerator_Batch2.m）
 
 # 3. 切分为云侧 + 2个边侧
 python run/prepare_data_splits.py --dataset_type radar --num_edges 2 --output_dir dataset/splits
@@ -253,7 +254,7 @@ python run_task.py --mode full_train --task_id 012_train_radar
 python run_task.py --mode device_to_edge_to_cloud --task_id 008_COLLAB_radar_test
 ```
 
-> **注意**：每个数据集中，步骤 1（推理测试数据）和步骤 2-3（训练数据）是独立的。只跑推理只需完成步骤 1，只跑训练只需完成步骤 2-3。radar 数据集的数据生成脚本是 MATLAB 格式（.m），需在 MATLAB 中运行。
+> **注意**：每个数据集中，步骤 1（推理测试数据）和步骤 2-3（训练数据）是独立的。只跑推理只需完成步骤 1，只跑训练只需完成步骤 2-3。radar 数据集同时保留了 MATLAB 版本（.m）和 Python 版本（.py），功能等效，任选其一即可。
 
 ---
 
