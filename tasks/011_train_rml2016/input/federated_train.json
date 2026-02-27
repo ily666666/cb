@@ -24,7 +24,7 @@
     "batch_size": 2048,
 
     "_注释_learning_rate": "本地训练学习率",
-    "learning_rate": 0.0001,
+    "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
     "device": "cuda:7",
