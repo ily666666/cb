@@ -15,19 +15,19 @@
     "num_classes": 7,
 
     "_注释_num_rounds": "联邦学习通信轮数",
-    "num_rounds": 20,
+    "num_rounds": 30,
 
     "_注释_local_epochs": "每轮中每个边侧的本地训练轮数",
-    "local_epochs": 3,
+    "local_epochs": 1,
 
     "_注释_batch_size": "本地训练批次大小",
-    "batch_size": 2048,
+    "batch_size": 1024,
 
     "_注释_learning_rate": "本地训练学习率",
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7",
+    "device": "cuda:6",
 
     "_注释_init_model_path": "全局模型初始权重",
     "init_model_path": "tasks/012_train_radar/output/edge_kd/student_model.pth"

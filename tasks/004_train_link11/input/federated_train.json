@@ -15,10 +15,10 @@
     "num_classes": 7,
 
     "_注释_num_rounds": "联邦学习通信轮数，每轮各边侧本地训练后聚合一次",
-    "num_rounds": 20,
+    "num_rounds": 30,
 
     "_注释_local_epochs": "每轮中每个边侧的本地训练轮数",
-    "local_epochs": 3,
+    "local_epochs": 1,
 
     "_注释_batch_size": "本地训练批次大小，联邦学习一般用较小的batch",
     "batch_size": 2048,

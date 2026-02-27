@@ -29,11 +29,11 @@
     "temperature": 4.0,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 2048,
+    "batch_size": 1024,
 
     "_注释_learning_rate": "学习率",
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7"
+    "device": "cuda:6"
 }

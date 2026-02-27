@@ -12,10 +12,10 @@
     "num_classes": 7,
 
     "_注释_epochs": "训练轮数",
-    "epochs": 50,
+    "epochs": 10,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 2048,
+    "batch_size": 1024,
 
     "_注释_learning_rate": "初始学习率",
     "learning_rate": 0.001,
@@ -24,5 +24,5 @@
     "weight_decay": 1e-4,
 
     "_注释_device": "训练设备",
-    "device": "cuda:7"
+    "device": "cuda:6"
 }

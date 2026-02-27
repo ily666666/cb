@@ -12,7 +12,7 @@
     "num_classes": 7,
 
     "_注释_epochs": "训练轮数，一般 30~100",
-    "epochs": 50,
+    "epochs": 10,
 
     "_注释_batch_size": "训练批次大小",
     "batch_size": 2048,

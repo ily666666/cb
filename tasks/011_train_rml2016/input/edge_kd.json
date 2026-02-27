@@ -20,7 +20,7 @@
     "teacher_model_type": "complex_resnet50_rml2016_with_attention",
 
     "_注释_epochs": "蒸馏训练轮数",
-    "epochs": 10,
+    "epochs": 30,
 
     "_注释_kd_alpha": "软标签权重(0~1)",
     "kd_alpha": 0.7,

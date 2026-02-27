@@ -15,7 +15,7 @@
     "num_classes": 6,
 
     "_注释_num_rounds": "联邦学习通信轮数",
-    "num_rounds": 10,
+    "num_rounds": 30,
 
     "_注释_local_epochs": "每轮中每个边侧的本地训练轮数",
     "local_epochs": 1,
