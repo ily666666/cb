@@ -76,14 +76,22 @@ def _make_dataloader(X, y, batch_size, shuffle=True):
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
 
 
-def _train_one_epoch(model, train_loader, optimizer, criterion, device):
-    """训练一个 epoch"""
+def _train_one_epoch(model, train_loader, optimizer, criterion, device,
+                     epoch_info=None, log_every=100):
+    """
+    训练一个 epoch
+    
+    Args:
+        epoch_info: (current_epoch, total_epochs) 用于显示进度，None 则静默
+        log_every: 每隔多少个 batch 打印一次进度（默认 100）
+    """
     model.train()
     total_loss = 0.0
     correct = 0
     total = 0
+    num_batches = len(train_loader)
 
-    for batch_X, batch_y in train_loader:
+    for batch_idx, (batch_X, batch_y) in enumerate(train_loader):
         batch_X = batch_X.to(device)
         batch_y = batch_y.to(device)
 
@@ -98,6 +106,15 @@ def _train_one_epoch(model, train_loader, optimizer, criterion, device):
         _, predicted = torch.max(outputs, 1)
         correct += (predicted == batch_y).sum().item()
         total += batch_y.size(0)
+
+        if epoch_info is not None and (batch_idx + 1) % log_every == 0:
+            ep, total_ep = epoch_info
+            running_acc = correct / total if total > 0 else 0
+            running_loss = total_loss / total if total > 0 else 0
+            print(f"    Epoch {ep}/{total_ep} | "
+                  f"Batch {batch_idx+1}/{num_batches} ({100*(batch_idx+1)/num_batches:.0f}%) | "
+                  f"Loss: {running_loss:.4f} Acc: {running_acc*100:.2f}%",
+                  flush=True)
 
     avg_loss = total_loss / total if total > 0 else 0
     accuracy = correct / total if total > 0 else 0
@@ -177,6 +194,28 @@ def _load_split_data(data_path, dataset_type):
     raise ValueError(f"不支持的数据格式: {type(data)}, keys={data.keys() if isinstance(data, dict) else 'N/A'}")
 
 
+def _generate_soft_labels_from_teacher(teacher, X_train, batch_size, temperature, device):
+    """用教师模型对训练数据生成软标签（方案B: 在边侧本地生成）"""
+    X_prepared = _prepare_iq_to_complex(X_train)
+    X_tensor = torch.from_numpy(X_prepared).cfloat() if isinstance(X_prepared, np.ndarray) else X_prepared
+    dummy_y = torch.zeros(len(X_tensor), dtype=torch.long)
+    loader = DataLoader(TensorDataset(X_tensor, dummy_y), batch_size=batch_size, shuffle=False)
+
+    total_batches = len(loader)
+    all_soft = []
+    teacher.eval()
+    with torch.no_grad():
+        for i, (batch_X, _) in enumerate(loader):
+            batch_X = batch_X.to(device)
+            logits = teacher(batch_X)
+            soft = F.softmax(logits / temperature, dim=1)
+            all_soft.append(soft.cpu().numpy())
+            if (i + 1) % 500 == 0 or (i + 1) == total_batches:
+                print(f"    软标签进度: {i+1}/{total_batches} ({100*(i+1)/total_batches:.1f}%)")
+
+    return np.concatenate(all_soft, axis=0)
+
+
 # ================================================================
 # 1. 预训练教师模型
 # ================================================================
@@ -247,13 +286,21 @@ def cloud_pretrain_callback(task_id):
     # 5. 训练循环
     best_val_acc = 0.0
     best_model_state = None
+    best_epoch = 0
     history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
 
-    print(f"\n[训练] 开始训练...")
+    os.makedirs(output_dir, exist_ok=True)
+    best_ckpt_path = os.path.join(output_dir, 'teacher_best.pth')
+
+    num_batches = len(train_loader)
+    print(f"\n[训练] 开始训练... (每轮 {num_batches} 个batch, batch_size={batch_size})")
     start_time = time.time()
 
     for epoch in range(1, epochs + 1):
-        train_loss, train_acc = _train_one_epoch(model, train_loader, optimizer, criterion, device)
+        epoch_start = time.time()
+        train_loss, train_acc = _train_one_epoch(
+            model, train_loader, optimizer, criterion, device,
+            epoch_info=(epoch, epochs))
         val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
         scheduler.step()
 
@@ -262,34 +309,52 @@ def cloud_pretrain_callback(task_id):
         history['val_loss'].append(val_loss)
         history['val_acc'].append(val_acc)
 
+        improved = ""
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_model_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            improved = " ★ 已保存"
+            torch.save({
+                'model_state_dict': best_model_state,
+                'model_type': model_type,
+                'num_classes': num_classes,
+                'dataset_type': dataset_type,
+                'best_val_acc': best_val_acc,
+                'epoch': epoch,
+            }, best_ckpt_path)
 
-        if epoch % 5 == 0 or epoch == epochs:
-            print(f"  Epoch {epoch}/{epochs} | "
-                  f"Train Loss: {train_loss:.4f} Acc: {train_acc*100:.2f}% | "
-                  f"Val Loss: {val_loss:.4f} Acc: {val_acc*100:.2f}% | "
-                  f"Best: {best_val_acc*100:.2f}%")
+        epoch_time = time.time() - epoch_start
+        elapsed = time.time() - start_time
+        eta = elapsed / epoch * (epochs - epoch)
+        eta_min, eta_sec = divmod(int(eta), 60)
+        print(f"  Epoch {epoch}/{epochs} ({epoch_time:.1f}s, ETA {eta_min}m{eta_sec:02d}s) | "
+              f"Train Loss: {train_loss:.4f} Acc: {train_acc*100:.2f}% | "
+              f"Val Loss: {val_loss:.4f} Acc: {val_acc*100:.2f}% | "
+              f"Best: {best_val_acc*100:.2f}% (ep{best_epoch}){improved}",
+              flush=True)
 
     total_time = time.time() - start_time
-    print(f"[训练] 完成! 总耗时: {total_time:.1f}s, 最佳验证准确率: {best_val_acc*100:.2f}%")
+    print(f"[训练] 完成! 总耗时: {total_time:.1f}s, 最佳验证准确率: {best_val_acc*100:.2f}% (epoch {best_epoch})")
 
     # 6. 测试最佳模型
     model.load_state_dict(best_model_state)
     test_loss, test_acc = _evaluate(model, test_loader, criterion, device)
     print(f"[测试] 测试准确率: {test_acc*100:.2f}%")
 
-    # 7. 保存
-    os.makedirs(output_dir, exist_ok=True)
-    torch.save({
+    # 7. 保存最终模型（覆盖 best checkpoint → 正式文件名）
+    final_save = {
         'model_state_dict': best_model_state,
         'model_type': model_type,
         'num_classes': num_classes,
         'dataset_type': dataset_type,
         'best_val_acc': best_val_acc,
         'test_acc': test_acc,
-    }, os.path.join(output_dir, 'teacher_model.pth'))
+        'epoch': best_epoch,
+    }
+    torch.save(final_save, os.path.join(output_dir, 'teacher_model.pth'))
+    if os.path.exists(best_ckpt_path):
+        os.remove(best_ckpt_path)
     save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
 
     # 8. 报告
@@ -316,158 +381,21 @@ def cloud_pretrain_callback(task_id):
 
 
 # ================================================================
-# 2. 知识蒸馏（文件系统方式，两步完成）
+# 2. 知识蒸馏（分别蒸馏：各边用自己的数据 + 教师模型）
 # ================================================================
 
-@register_task
-def cloud_kd_callback(task_id):
+def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels,
+                          alpha, temperature, epochs, batch_size, learning_rate,
+                          device, label=""):
+    """蒸馏训练一个学生模型
+
+    返回: {'best_state': state_dict, 'best_acc': float, 'best_epoch': int, 'train_time': float}
     """
-    知识蒸馏 - 云侧：生成软标签
-
-    功能：加载教师模型，对训练数据生成软标签并保存
-
-    配置: input/cloud_kd.json
-    输出: output/cloud_kd/soft_labels.pkl
-    """
-    print(f"\n{'='*60}")
-    print(f"[云侧] 知识蒸馏 - 生成软标签")
-    print(f"{'='*60}")
-
-    config_path = f"./tasks/{task_id}/input/cloud_kd.json"
-    param_list = ['teacher_model_path', 'teacher_model_type', 'num_classes', 'dataset_type', 'data_path']
-    result, config = check_parameters(config_path, param_list)
-    if 'error' in result:
-        return {'status': 'error', 'message': result['error']}
-    elif not result['valid']:
-        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
-
-    teacher_model_path = config['teacher_model_path']
-    teacher_model_type = config['teacher_model_type']
-    num_classes = config['num_classes']
-    dataset_type = config['dataset_type']
-    data_path = config['data_path']
-    temperature = config.get('temperature', 4.0)
-    batch_size = config.get('batch_size', 128)
-    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
-
-    output_dir = f"./tasks/{task_id}/output/cloud_kd"
-
-    # 缓存检查
-    if check_output_exists(task_id, 'cloud_kd', 'soft_labels.pkl'):
-        print(f"[跳过] 软标签已存在")
-        return {'status': 'cached'}
-
-    # 加载教师模型
-    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
-    checkpoint = torch.load(teacher_model_path, map_location=device)
-    if 'model_state_dict' in checkpoint:
-        teacher.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        teacher.load_state_dict(checkpoint)
-    teacher.to(device)
-    teacher.eval()
-    print(f"[模型] 教师模型加载完成")
-
-    # 加载训练数据（教师模型是 complex 模型，数据需转为 complex）
-    splits = _load_split_data(data_path, dataset_type)
-    X_train, y_train = splits['train']
-    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=False)
-    print(f"[加载] 训练集: {len(X_train)} 样本")
-
-    # 生成软标签
-    total_batches = len(train_loader)
-    print(f"[蒸馏] 正在生成软标签 (temperature={temperature}, 共 {total_batches} 个 batch)...")
-    all_soft_labels = []
-    with torch.no_grad():
-        for i, (batch_X, _) in enumerate(train_loader):
-            batch_X = batch_X.to(device)
-            logits = teacher(batch_X)
-            soft = F.softmax(logits / temperature, dim=1)
-            all_soft_labels.append(soft.cpu().numpy())
-            if (i + 1) % 500 == 0 or (i + 1) == total_batches:
-                pct = (i + 1) / total_batches * 100
-                print(f"  进度: {i+1}/{total_batches} ({pct:.1f}%)")
-
-    soft_labels = np.concatenate(all_soft_labels, axis=0)
-    print(f"[蒸馏] 生成 {len(soft_labels)} 个软标签")
-
-    # 保存
-    os.makedirs(output_dir, exist_ok=True)
-    save_pickle(os.path.join(output_dir, 'soft_labels.pkl'), {
-        'soft_labels': soft_labels,
-        'temperature': temperature,
-        'teacher_model_type': teacher_model_type,
-    })
-
-    # 同时保存教师模型的state_dict（供边侧参考）
-    save_pickle(os.path.join(output_dir, 'teacher_state_dict.pkl'), teacher.state_dict())
-
-    print(f"[完成] 软标签已保存到 {output_dir}")
-    return {'status': 'success', 'num_soft_labels': len(soft_labels)}
-
-
-@register_task
-def edge_kd_callback(task_id):
-    """
-    知识蒸馏 - 边侧：使用软标签训练学生模型
-
-    配置: input/edge_kd.json
-    输入: output/cloud_kd/soft_labels.pkl
-    输出:
-      - output/edge_kd/student_model.pth
-      - result/edge_kd/kd_report.txt
-    """
-    print(f"\n{'='*60}")
-    print(f"[边侧] 知识蒸馏 - 训练学生模型")
-    print(f"{'='*60}")
-
-    config_path = f"./tasks/{task_id}/input/edge_kd.json"
-    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'data_path', 'epochs']
-    result, config = check_parameters(config_path, param_list)
-    if 'error' in result:
-        return {'status': 'error', 'message': result['error']}
-    elif not result['valid']:
-        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
-
-    student_model_type = config['student_model_type']
-    num_classes = config['num_classes']
-    dataset_type = config['dataset_type']
-    data_path = config['data_path']
-    epochs = config['epochs']
-    alpha = config.get('kd_alpha', 0.7)       # 软标签权重
-    temperature = config.get('temperature', 4.0)
-    batch_size = config.get('batch_size', 128)
-    learning_rate = config.get('learning_rate', 0.001)
-    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
-
-    output_dir = f"./tasks/{task_id}/output/edge_kd"
-
-    if check_output_exists(task_id, 'edge_kd', 'student_model.pth'):
-        print(f"[跳过] 学生模型已存在")
-        return {'status': 'cached'}
-
-    # 加载训练数据
-    splits = _load_split_data(data_path, dataset_type)
-    X_train, y_train = splits['train']
-    X_test, y_test = splits['test']
-
-    # 加载软标签
-    print(f"[加载] 从 cloud_kd 加载软标签...")
-    soft_data = load_from_output(task_id, 'cloud_kd', 'soft_labels.pkl')
-    soft_labels = soft_data['soft_labels']
-    print(f"[加载] 软标签: {soft_labels.shape}")
-
-    # 创建学生模型
-    student = create_model_by_type(student_model_type, num_classes, dataset_type)
-    student.to(device)
-    print(f"[模型] 创建学生模型: {student_model_type}")
-
     optimizer = optim.Adam(student.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     ce_criterion = nn.CrossEntropyLoss()
     kl_criterion = nn.KLDivLoss(reduction='batchmean')
 
-    # 构建 DataLoader（含软标签）
     X_prepared = _prepare_iq_to_complex(X_train)
     X_tensor = torch.from_numpy(X_prepared).cfloat() if isinstance(X_prepared, np.ndarray) else X_prepared
     y_tensor = torch.from_numpy(y_train).long() if isinstance(y_train, np.ndarray) else y_train
@@ -477,11 +405,14 @@ def edge_kd_callback(task_id):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False)
 
-    # 蒸馏训练
     total_batches = len(train_loader)
-    print(f"\n[训练] 开始知识蒸馏 (alpha={alpha}, T={temperature}, 每轮 {total_batches} batch)...")
+    kd_log_interval = 100
+    prefix = f"[{label}] " if label else ""
+
+    print(f"\n{prefix}开始蒸馏 (alpha={alpha}, T={temperature}, 每轮 {total_batches} batch, 训练集 {len(X_train)} 样本)...")
     best_test_acc = 0.0
     best_state = None
+    best_epoch = 0
     start_time = time.time()
 
     for epoch in range(1, epochs + 1):
@@ -499,14 +430,10 @@ def edge_kd_callback(task_id):
             optimizer.zero_grad()
             student_logits = student(batch_X)
 
-            # CE loss（硬标签）
             ce_loss = ce_criterion(student_logits, batch_y)
-
-            # KD loss（软标签）
             student_soft = F.log_softmax(student_logits / temperature, dim=1)
             kd_loss = kl_criterion(student_soft, batch_soft) * (temperature ** 2)
 
-            # 总损失
             loss = (1 - alpha) * ce_loss + alpha * kd_loss
             loss.backward()
             torch.nn.utils.clip_grad_norm_(student.parameters(), max_norm=5.0)
@@ -517,57 +444,222 @@ def edge_kd_callback(task_id):
             correct += (predicted == batch_y).sum().item()
             total += batch_y.size(0)
 
-            # 每轮内显示进度
-            if (batch_idx + 1) % 500 == 0:
-                pct = (batch_idx + 1) / total_batches * 100
-                print(f"    Epoch {epoch} 进度: {batch_idx+1}/{total_batches} ({pct:.1f}%)")
+            if (batch_idx + 1) % kd_log_interval == 0:
+                running_acc = correct / total if total > 0 else 0
+                running_loss = total_loss / total if total > 0 else 0
+                print(f"    {prefix}Epoch {epoch}/{epochs} | "
+                      f"Batch {batch_idx+1}/{total_batches} ({100*(batch_idx+1)/total_batches:.0f}%) | "
+                      f"Loss: {running_loss:.4f} Acc: {running_acc*100:.2f}%",
+                      flush=True)
 
         scheduler.step()
-        train_loss = total_loss / total
         train_acc = correct / total
         epoch_time = time.time() - epoch_start
 
-        # 测试
-        test_loss, test_acc = _evaluate(student, test_loader, ce_criterion, device)
+        _, test_acc = _evaluate(student, test_loader, ce_criterion, device)
 
+        improved = ""
         if test_acc > best_test_acc:
             best_test_acc = test_acc
             best_state = copy.deepcopy(student.state_dict())
+            best_epoch = epoch
+            improved = " ★"
 
-        if epoch % 5 == 0 or epoch == epochs or epoch <= 2:
-            print(f"  Epoch {epoch}/{epochs} ({epoch_time:.1f}s) | "
-                  f"Train: {train_acc*100:.2f}% | Test: {test_acc*100:.2f}% | Best: {best_test_acc*100:.2f}%")
+        elapsed = time.time() - start_time
+        eta = elapsed / epoch * (epochs - epoch)
+        eta_min, eta_sec = divmod(int(eta), 60)
+        print(f"  {prefix}Epoch {epoch}/{epochs} ({epoch_time:.1f}s, ETA {eta_min}m{eta_sec:02d}s) | "
+              f"Train: {train_acc*100:.2f}% | Test: {test_acc*100:.2f}% | "
+              f"Best: {best_test_acc*100:.2f}% (ep{best_epoch}){improved}",
+              flush=True)
 
     total_time = time.time() - start_time
-    print(f"[训练] 完成! 耗时: {total_time:.1f}s, 最佳测试准确率: {best_test_acc*100:.2f}%")
+    print(f"{prefix}完成! 耗时: {total_time:.1f}s, 最佳: {best_test_acc*100:.2f}% (epoch {best_epoch})")
 
-    # 保存
+    return {
+        'best_state': best_state,
+        'best_acc': best_test_acc,
+        'best_epoch': best_epoch,
+        'train_time': total_time,
+    }
+
+
+@register_task
+def edge_kd_callback(task_id, edge_id=None, **kwargs):
+    """
+    知识蒸馏 — 各边分别蒸馏
+
+    加载教师模型，每个边用自己的本地数据生成软标签并训练学生模型。
+
+    单机模式: 不传 edge_id → 处理所有边，生成所有 student_edge_*.pth + student_model.pth
+    多机模式: --edge_id N → 只处理第 N 个边，生成 student_edge_N.pth
+
+    配置: input/edge_kd.json
+    运行:
+      单机: python run_task.py --mode full_train --task_id xxx
+      多机: python run_task.py --step edge_kd --task_id xxx --edge_id 1
+    """
+    config_path = f"./tasks/{task_id}/input/edge_kd.json"
+    param_list = ['student_model_type', 'num_classes', 'dataset_type',
+                  'edge_data_paths', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    edge_data_paths = config['edge_data_paths']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    num_edges = len(edge_data_paths)
+
+    output_dir = f"./tasks/{task_id}/output/edge_kd"
+
+    # 确定要处理的边
+    if edge_id is not None:
+        if edge_id < 1 or edge_id > num_edges:
+            return {'status': 'error',
+                    'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+        edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+        single_edge_mode = True
+    else:
+        if check_output_exists(task_id, 'edge_kd', 'student_model.pth'):
+            print(f"[跳过] 学生模型已存在")
+            return {'status': 'cached'}
+        edges_to_process = list(enumerate(edge_data_paths))
+        single_edge_mode = False
+
+    mode_label = f"边 {edge_id}" if single_edge_mode else f"全部 {num_edges} 个边"
+    print(f"\n{'='*60}")
+    print(f"[知识蒸馏] 分别蒸馏 — {mode_label}")
+    print(f"{'='*60}")
+
+    # 单边模式下的缓存检查
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] student_edge_{edge_id}.pth 已存在")
+            return {'status': 'cached'}
+
+    # 加载教师模型
+    teacher_model_type = config.get('teacher_model_type')
+    teacher_model_path = config.get('teacher_model_path',
+        f"./tasks/{task_id}/output/cloud_pretrain/teacher_model.pth")
+
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+    print(f"[教师] 加载完成: {teacher_model_type} ← {teacher_model_path}")
+    print(f"[配置] 每边 {epochs} epoch, alpha={alpha}, T={temperature}")
+
     os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        print(f"\n{'='*60}")
+        print(f"[边侧 {eid}/{num_edges}] 蒸馏开始 (数据: {edge_path})")
+        print(f"{'='*60}")
+
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        print(f"[边侧 {eid}] 训练集: {len(X_train)}, 测试集: {len(X_test)}")
+
+        print(f"[边侧 {eid}] 生成软标签...")
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device)
+        print(f"[边侧 {eid}] 软标签: {soft_labels.shape}")
+
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}")
+
+        torch.save({
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
+
+        all_results.append((eid, kd_result))
+
+    # 单边模式：只保存该边的模型，不生成 student_model.pth（等所有边完成后由 federated_train 聚合）
+    if single_edge_mode:
+        eid, r = all_results[0]
+        print(f"\n[完成] 边 {eid} 蒸馏完成: {r['best_acc']*100:.2f}%")
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    # 全量模式：保存最佳边的模型作为 student_model.pth
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
     torch.save({
-        'model_state_dict': best_state,
+        'model_state_dict': best_r['best_state'],
         'model_type': student_model_type,
         'num_classes': num_classes,
         'dataset_type': dataset_type,
-        'best_test_acc': best_test_acc,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
     }, os.path.join(output_dir, 'student_model.pth'))
 
     # 报告
     result_dir = f"./tasks/{task_id}/result/edge_kd"
     os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
     with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
-        f.write("=" * 60 + "\n知识蒸馏训练报告\n" + "=" * 60 + "\n\n")
+        f.write("=" * 60 + "\n知识蒸馏训练报告（分别蒸馏）\n" + "=" * 60 + "\n\n")
         f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"学生模型: {student_model_type}\n")
+        f.write(f"教师模型: {teacher_model_type}\n")
         f.write(f"蒸馏参数: alpha={alpha}, temperature={temperature}\n")
         f.write(f"训练轮数: {epochs}\n")
-        f.write(f"训练耗时: {total_time:.1f}s\n\n")
-        f.write(f"最佳测试准确率: {best_test_acc*100:.2f}%\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        for eid, r in all_results:
+            f.write(f"边侧 {eid}: 最佳准确率 {r['best_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
 
-    print(f"[完成] 学生模型已保存到 {output_dir}")
+    print(f"\n{'='*60}")
+    print(f"[完成] 蒸馏结果汇总:")
+    for eid, r in all_results:
+        marker = " ← student_model.pth" if eid == best_eid else ""
+        print(f"  边{eid}: {r['best_acc']*100:.2f}%{marker}")
+    print(f"{'='*60}")
+
     return {
         'status': 'success',
-        'best_test_acc': float(best_test_acc),
-        'train_time': total_time,
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
     }
 
 
@@ -640,16 +732,35 @@ def federated_train_callback(task_id):
         edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False))
         edge_sizes.append(len(X_train))
 
-    # 2. 初始化全局模型
+    # 2. 初始化全局模型（从各边 KD 模型聚合）
     global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
 
-    if init_model_path and os.path.exists(init_model_path):
+    edge_kd_dir = f"./tasks/{task_id}/output/edge_kd"
+    per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth')
+                      for i in range(num_edges)]
+    has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
+
+    if has_per_edge:
+        total_weight = sum(edge_sizes)
+        avg_state = None
+        for i in range(num_edges):
+            ckpt = torch.load(per_edge_paths[i], map_location=device)
+            state = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+            w = edge_sizes[i] / total_weight
+            if avg_state is None:
+                avg_state = {k: v.float() * w for k, v in state.items()}
+            else:
+                for k in avg_state:
+                    avg_state[k] += state[k].float() * w
+        global_model.load_state_dict(avg_state)
+        print(f"[模型] 从 {num_edges} 个边侧 KD 模型聚合初始化全局模型")
+    elif init_model_path and os.path.exists(init_model_path):
         checkpoint = torch.load(init_model_path, map_location=device)
         if 'model_state_dict' in checkpoint:
             global_model.load_state_dict(checkpoint['model_state_dict'])
         else:
             global_model.load_state_dict(checkpoint)
-        print(f"[模型] 从 {init_model_path} 初始化全局模型")
+        print(f"[模型] 从 {init_model_path} 初始化全局模型（后备）")
     else:
         print(f"[模型] 随机初始化全局模型: {edge_model_type}")
 
@@ -671,20 +782,21 @@ def federated_train_callback(task_id):
 
         # 各边侧本地训练
         for e in range(num_edges):
-            # 加载全局模型
             local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
             local_model.load_state_dict(global_model.state_dict())
             local_model.to(device)
 
             local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
 
-            # 本地训练
-            for _ in range(local_epochs):
-                _train_one_epoch(local_model, edge_train_loaders[e], local_optimizer, criterion, device)
+            for le in range(1, local_epochs + 1):
+                _train_one_epoch(
+                    local_model, edge_train_loaders[e], local_optimizer, criterion, device,
+                    epoch_info=(le, local_epochs))
 
-            # 测试
             _, test_acc = _evaluate(local_model, edge_test_loaders[e], criterion, device)
             edge_accs.append(test_acc)
+            print(f"    Round {round_idx} 边{e+1}: 本地训练完成, 测试准确率: {test_acc*100:.2f}%",
+                  flush=True)
 
             edge_states.append(copy.deepcopy(local_model.state_dict()))
             edge_weights.append(edge_sizes[e])
@@ -1063,11 +1175,11 @@ def federated_edge_callback(task_id, edge_id=None, **kwargs):
 
         local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
 
-        # 本地训练
-        for ep in range(local_epochs):
-            _train_one_epoch(local_model, train_loader, local_optimizer, criterion, device)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(
+                local_model, train_loader, local_optimizer, criterion, device,
+                epoch_info=(ep, local_epochs))
 
-        # 测试
         _, test_acc = _evaluate(local_model, test_loader, criterion, device)
 
         # 保存本轮结果（含 num_samples 和 test_acc，供 server 聚合时使用）

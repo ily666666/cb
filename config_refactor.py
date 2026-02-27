@@ -53,8 +53,7 @@ SUPPORTED_TASKS = [
     'cloud_direct_infer',       # 云侧直接推理（全量数据）
     # 训练类
     'cloud_pretrain',           # 预训练教师模型
-    'cloud_kd',                 # 知识蒸馏-云侧生成软标签
-    'edge_kd',                  # 知识蒸馏-边侧蒸馏训练
+    'edge_kd',                  # 知识蒸馏-各边分别蒸馏
     'federated_train',          # 联邦学习训练（单机模拟）
     'federated_server',         # 联邦学习-云侧聚合（分布式模式）
     'federated_edge',           # 联邦学习-边侧本地训练（分布式模式）
@@ -68,13 +67,13 @@ PIPELINE_MODES = {
     'device_to_edge_to_cloud': ['device_load', 'edge_infer', 'cloud_infer'],
     # 训练模式
     'pretrain': ['cloud_pretrain'],
-    'knowledge_distillation': ['cloud_kd', 'edge_kd'],
+    'knowledge_distillation': ['edge_kd'],
     'federated_learning': ['federated_train'],
     'federated_server': ['federated_server'],
     'federated_edge': ['federated_edge'],
     # 完整训练+推理
-    'full_train': ['cloud_pretrain', 'cloud_kd', 'edge_kd', 'federated_train'],
-    'full_pipeline': ['cloud_pretrain', 'cloud_kd', 'edge_kd', 'federated_train',
+    'full_train': ['cloud_pretrain', 'edge_kd', 'federated_train'],
+    'full_pipeline': ['cloud_pretrain', 'edge_kd', 'federated_train',
                       'device_load', 'edge_infer', 'cloud_infer'],
 }
 

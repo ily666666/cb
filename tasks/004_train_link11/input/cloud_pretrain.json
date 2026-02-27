@@ -1,5 +1,5 @@
 {
-    "_注释_data_path": "云侧预划分数据，由 run/prepare_data_splits.py 生成，包含 train/val/test",
+    "_注释_data_path": "云侧预划分数据，由 run/prepare_data_splits.py 生成",
     "data_path": "dataset/splits/link11/cloud_data.pkl",
 
     "_注释_dataset_type": "数据集类型，决定标签映射和信号长度",
@@ -15,7 +15,7 @@
     "epochs": 50,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 128,
+    "batch_size": 2048,
 
     "_注释_learning_rate": "初始学习率，配合 CosineAnnealing 自动衰减",
     "learning_rate": 0.001,
@@ -24,5 +24,5 @@
     "weight_decay": 1e-4,
 
     "_注释_device": "训练设备",
-    "device": "cuda:0"
+    "device": "cuda:7"
 }

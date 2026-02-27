@@ -1,4 +1,6 @@
 {
+    "_注释_模式": "分别蒸馏模式：每个边用自己的本地数据 + 教师模型蒸馏",
+
     "_注释_student_model_type": "学生模型类型（边侧轻量模型）",
     "student_model_type": "real_resnet20_radar_h",
 
@@ -8,8 +10,14 @@
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "radar",
 
-    "_注释_data_path": "云侧数据路径",
-    "data_path": "dataset/splits/radar/cloud_data.pkl",
+    "_注释_edge_data_paths": "各边侧的本地数据文件（触发分别蒸馏模式）",
+    "edge_data_paths": [
+        "dataset/splits/radar/edge_1_data.pkl",
+        "dataset/splits/radar/edge_2_data.pkl"
+    ],
+
+    "_注释_teacher_model_type": "教师模型类型（用于生成软标签）",
+    "teacher_model_type": "complex_resnet50_radar_with_attention",
 
     "_注释_epochs": "蒸馏训练轮数",
     "epochs": 30,
@@ -17,15 +25,15 @@
     "_注释_kd_alpha": "软标签权重(0~1)",
     "kd_alpha": 0.7,
 
-    "_注释_temperature": "蒸馏温度，必须和 cloud_kd 阶段一致",
+    "_注释_temperature": "蒸馏温度",
     "temperature": 4.0,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 128,
+    "batch_size": 2048,
 
     "_注释_learning_rate": "学习率",
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:0"
+    "device": "cuda:7"
 }

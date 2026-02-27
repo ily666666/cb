@@ -21,13 +21,13 @@
     "local_epochs": 3,
 
     "_注释_batch_size": "本地训练批次大小",
-    "batch_size": 128,
+    "batch_size": 2048,
 
     "_注释_learning_rate": "本地训练学习率",
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:0",
+    "device": "cuda:7",
 
     "_注释_init_model_path": "全局模型初始权重",
     "init_model_path": "tasks/012_train_radar/output/edge_kd/student_model.pth"

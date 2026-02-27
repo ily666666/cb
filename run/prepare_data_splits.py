@@ -324,9 +324,9 @@ def main():
                         choices=['dirichlet'], 
                         help='数据划分方法')
     parser.add_argument('--dirichlet_alpha', type=float, default=0.3, 
-                        help='Dirichlet分布参数（越小越异构）')
+                        help='Dirichlet分布参数（越小各边数据差异越大，0.3=强异构）')
     parser.add_argument('--cloud_ratio', type=float, default=0.8, 
-                        help='云侧数据比例')
+                        help='云侧数据比例（默认0.8，云侧80%%用于预训练+蒸馏，边侧20%%用于联邦学习）')
     parser.add_argument('--seed', type=int, default=42, 
                         help='随机种子')
     parser.add_argument('--output_dir', type=str, default='dataset/splits', 

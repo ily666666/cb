@@ -6,7 +6,7 @@
   python run_task.py --mode device_to_edge_to_cloud --task_id 001_COLLAB_link11_test
 
   # 单步骤模式（分布式部署时，在各机器上独立执行单个步骤）
-  python run_task.py --step cloud_kd --task_id 004_train_link11
+  python run_task.py --step edge_kd --task_id 004_train_link11
   python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1
 
   # 最后一步加 --summary 触发全局耗时汇总 + 写入报告
@@ -275,7 +275,7 @@ def main():
   python run_task.py --mode full_train --task_id 004_train_link11
 
   # 单步骤模式（分布式部署）
-  python run_task.py --step cloud_kd --task_id 004_train_link11
+  python run_task.py --step edge_kd --task_id 004_train_link11
   python run_task.py --step federated_server --task_id 004_train_link11
   python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1
 
@@ -294,7 +294,7 @@ def main():
     parser.add_argument("--task_id", required=True,
                         help="任务ID（对应 tasks/ 下的目录名）")
     parser.add_argument("--edge_id", type=int, default=None,
-                        help="边侧ID（仅 --step federated_edge 时使用，从 1 开始）")
+                        help="边侧ID（--step edge_kd 或 federated_edge 时使用，从 1 开始）")
     parser.add_argument("--summary", action="store_true", default=False,
                         help="显示全局耗时汇总并写入报告（--mode 自动开启；--step 最后一步时手动加）")
 
