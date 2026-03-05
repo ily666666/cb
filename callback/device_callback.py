@@ -233,27 +233,6 @@ def device_load_callback(task_id):
     output_dir = f"./tasks/{task_id}/output/device_load"
     os.makedirs(output_dir, exist_ok=True)
     
-        # ========== 针对radar数据集的智能压缩 ==========
-    if dataset_type == 'radar' and X_data.shape[2] == 1000:
-        print(f"[Radar压缩] 检测到radar数据集(1000长度)")
-        
-        # 根据task_id判断保存哪个版本
-        if 'cloud_only' in task_id:
-            # 纯云推理：端侧直接给云侧发完整1000长度
-            X_data_save = X_data
-            print(f"[Radar压缩] 纯云推理任务，保存1000长度")
-        elif 'edge_only' in task_id or 'COLLAB' in task_id:
-            # 纯边推理或协同推理：端侧给边侧发压缩500长度
-            X_data_save = X_data[:, :, :500]
-            print(f"[Radar压缩] 边侧/协同任务，保存500长度")
-        else:
-            # 训练任务：保存完整数据
-            X_data_save = X_data
-            print(f"[Radar压缩] 训练任务，保存完整1000长度")
-    else:
-        # 非radar或非1000长度：保持原样
-        X_data_save = X_data
-
     output_data = {
         'X': X_data,
         'y': y_data,
