@@ -1,6 +1,10 @@
 {
-    "_注释_data_path": "云侧预划分数据，由 run/prepare_data_splits.py 生成",
-    "data_path": "dataset/splits/rml2016/cloud_data.pkl",
+    "_部署模式": "单机/多机共用 | 阶段1 | 云侧机器运行",
+
+    "_注释_input_data": "数据准备步骤（prepare_data_splits.py）的输出，作为本步骤的输入",
+    "input_data": {
+        "data_path": "dataset/splits/rml2016/cloud_data.pkl"
+    },
 
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "rml2016",

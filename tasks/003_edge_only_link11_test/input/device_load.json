@@ -1,7 +1,16 @@
 {
+    "_注释_data_path": "推理测试数据目录，由 test_data_generation/link11_gene5_batch.py 生成",
     "data_path": "dataset/link11",
+
+    "_注释_dataset_type": "数据集类型，决定标签映射和信号长度",
     "dataset_type": "link11",
+
+    "_注释_batch_size": "每批加载的样本数",
     "batch_size": 32,
+
+    "_注释_max_files": "最多加载的 batch 文件数，null=全部加载，设小值可快速测试",
     "max_files": 10,
+
+    "_注释_num_batches": "限制总样本数 = num_batches × batch_size，null=不限制",
     "num_batches": null
 }

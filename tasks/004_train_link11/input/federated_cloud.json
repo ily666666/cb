@@ -1,5 +1,11 @@
 {
-    "_注释": "联邦学习 - 云侧聚合配置（分布式模式下在云侧机器运行）",
+    "_部署模式": "多机专用 | 阶段3 | 云侧机器运行",
+    "_注释": "联邦学习 - 云侧聚合服务",
+
+    "_注释_input_data": "上一步（edge_kd）的输出，作为本步骤的输入",
+    "input_data": {
+        "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth"
+    },
 
     "_注释_num_edges": "参与联邦学习的边侧节点数量",
     "num_edges": 2,
@@ -18,9 +24,6 @@
 
     "_注释_device": "计算设备",
     "device": "cuda:0",
-
-    "_注释_init_model_path": "全局模型初始权重，null=随机初始化",
-    "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth",
 
     "_注释_sync_timeout": "等待边侧模型的超时时间（秒）",
     "sync_timeout": 1800

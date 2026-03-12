@@ -64,7 +64,10 @@
 
 ```json
 {
-    "data_path": "dataset/splits/link11/cloud_data.pkl",
+    "_部署模式": "单机/多机共用 | 阶段1 | 云侧机器运行",
+    "input_data": {
+        "data_path": "dataset/splits/link11/cloud_data.pkl"
+    },
     "model_type": "complex_resnet50_link11_with_attention",
     "epochs": 50,
     "batch_size": 32,
@@ -120,7 +123,10 @@ soft = F.softmax(logits / temperature, dim=1)    # 除以温度再 softmax
 
 ```json
 {
-    "teacher_model_path": "tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth",
+    "_部署模式": "单机专用 | 阶段2 | 一台机器循环处理所有边",
+    "input_data": {
+        "teacher_model_path": "tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth"
+    },
     "temperature": 4.0
 }
 ```
@@ -179,6 +185,10 @@ total_loss = 0.3 * ce_loss + 0.7 * kd_loss
 
 ```json
 {
+    "_部署模式": "单机专用 | 阶段2 | 一台机器循环处理所有边",
+    "input_data": {
+        "teacher_model_path": "tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth"
+    },
     "student_model_type": "real_resnet20_link11_h",
     "kd_alpha": 0.7,
     "temperature": 4.0,
@@ -228,14 +238,17 @@ total_loss = 0.3 * ce_loss + 0.7 * kd_loss
 
 ```json
 {
-    "edge_data_paths": [
-        "dataset/splits/link11/edge_1_data.pkl",
-        "dataset/splits/link11/edge_2_data.pkl"
-    ],
+    "_部署模式": "单机专用 | 阶段3 | 一台机器模拟所有边的联邦学习",
+    "input_data": {
+        "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth",
+        "edge_data_paths": [
+            "dataset/splits/link11/edge_1_data.pkl",
+            "dataset/splits/link11/edge_2_data.pkl"
+        ]
+    },
     "num_rounds": 20,
     "local_epochs": 3,
-    "batch_size": 32,
-    "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth"
+    "batch_size": 32
 }
 ```
 

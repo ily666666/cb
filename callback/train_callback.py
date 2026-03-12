@@ -238,14 +238,17 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     # 1. 读取配置
     config_name = config_name or 'cloud_pretrain'
     config_path = f"./tasks/{task_id}/input/{config_name}.json"
-    param_list = ['data_path', 'dataset_type', 'model_type', 'num_classes', 'epochs']
+    param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
     result, config = check_parameters(config_path, param_list)
     if 'error' in result:
         return {'status': 'error', 'message': result['error']}
     elif not result['valid']:
         return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
 
-    data_path = config['data_path']
+    input_data = config.get('input_data', {})
+    data_path = input_data.get('data_path', config.get('data_path'))
+    if not data_path:
+        return {'status': 'error', 'message': '缺少参数: data_path（需在 input_data 或顶层配置中指定）'}
     dataset_type = config['dataset_type']
     model_type = config['model_type']
     num_classes = config['num_classes']
@@ -530,13 +533,15 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
     output_dir = f"./tasks/{task_id}/output/edge_kd"
 
-    # 确定要处理的边和数据路径
-    if 'data_path' in config and edge_id is not None:
-        edges_to_process = [(edge_id - 1, config['data_path'])]
+    # 确定要处理的边和数据路径（优先从 input_data 读取）
+    input_data = config.get('input_data', {})
+    data_path = input_data.get('data_path', config.get('data_path'))
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
         single_edge_mode = True
         num_edges = edge_id
-    elif 'edge_data_paths' in config:
-        edge_data_paths = config['edge_data_paths']
+    elif edge_data_paths:
         num_edges = len(edge_data_paths)
         if edge_id is not None:
             if edge_id < 1 or edge_id > num_edges:
@@ -565,10 +570,12 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
             print(f"[跳过] student_edge_{edge_id}.pth 已存在")
             return {'status': 'cached'}
 
-    # 加载教师模型
+    # 加载教师模型（优先从 input_data 读取上一步输出路径）
+    input_data = config.get('input_data', {})
     teacher_model_type = config.get('teacher_model_type')
-    teacher_model_path = config.get('teacher_model_path',
-        f"./tasks/{task_id}/output/cloud_pretrain/teacher_model.pth")
+    teacher_model_path = input_data.get('teacher_model_path',
+        config.get('teacher_model_path',
+            f"./tasks/{task_id}/output/cloud_pretrain/teacher_model.pth"))
 
     if not os.path.exists(teacher_model_path):
         return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
@@ -707,7 +714,7 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     print(f"{'='*60}")
 
     config_path = f"./tasks/{task_id}/input/federated_train.json"
-    param_list = ['edge_data_paths', 'dataset_type', 'edge_model_type', 'num_classes',
+    param_list = ['dataset_type', 'edge_model_type', 'num_classes',
                   'num_rounds', 'local_epochs']
     result, config = check_parameters(config_path, param_list)
     if 'error' in result:
@@ -715,7 +722,11 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     elif not result['valid']:
         return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
 
-    edge_data_paths = config['edge_data_paths']   # list of paths
+    input_data_fed = config.get('input_data', {})
+    edge_data_paths = input_data_fed.get('edge_data_paths',
+        config.get('edge_data_paths'))
+    if not edge_data_paths:
+        return {'status': 'error', 'message': '缺少参数: edge_data_paths（需在 input_data 或顶层配置中指定）'}
     dataset_type = config['dataset_type']
     edge_model_type = config['edge_model_type']
     num_classes = config['num_classes']
@@ -724,7 +735,9 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     batch_size = config.get('batch_size', 32)
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
-    init_model_path = config.get('init_model_path', None)  # 可从KD模型初始化
+    input_data = config.get('input_data', {})
+    init_model_path = input_data.get('init_model_path',
+        config.get('init_model_path', None))
 
     num_edges = len(edge_data_paths)
     output_dir = f"./tasks/{task_id}/output/federated_train"
@@ -969,7 +982,9 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     num_classes = config['num_classes']
     num_rounds = config['num_rounds']
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
-    init_model_path = config.get('init_model_path', None)
+    input_data = config.get('input_data', {})
+    init_model_path = input_data.get('init_model_path',
+        config.get('init_model_path', None))
     timeout = config.get('sync_timeout', 1800)
 
     num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
@@ -1155,7 +1170,9 @@ def federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
     timeout = config.get('sync_timeout', 1800)
 
-    output_dir = f"./tasks/{task_id}/output/federated_train"
+    input_data = config.get('input_data', {})
+    output_dir = input_data.get('sync_dir',
+        f"./tasks/{task_id}/output/federated_train")
     os.makedirs(output_dir, exist_ok=True)
 
     # 检查是否已完成
@@ -1164,10 +1181,10 @@ def federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
         print(f"[跳过] 边 {edge_id} 最终模型已存在: {final_model_path}")
         return {'status': 'cached'}
 
-    # 1. 加载本边侧数据
-    if 'data_path' in config:
-        data_path = config['data_path']
-    else:
+    # 1. 加载本边侧数据（优先从 input_data 读取）
+    data_path = input_data.get('data_path',
+        config.get('data_path'))
+    if not data_path and 'edge_data_paths' in config:
         data_path = config['edge_data_paths'][edge_id - 1]
     print(f"[加载] 边 {edge_id} 数据: {data_path}")
     splits = _load_split_data(data_path, dataset_type)

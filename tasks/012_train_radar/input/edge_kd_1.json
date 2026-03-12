@@ -1,5 +1,12 @@
 {
-    "_注释": "知识蒸馏 - 边侧1配置（分布式模式下在边侧机器1运行）",
+    "_部署模式": "多机专用 | 阶段2 | 边侧机器1运行",
+    "_注释": "知识蒸馏 - 边侧1配置",
+
+    "_注释_input_data": "上一步（cloud_pretrain）的输出，作为本步骤的输入",
+    "input_data": {
+        "teacher_model_path": "tasks/012_train_radar/output/cloud_pretrain/teacher_model.pth",
+        "data_path": "dataset/splits/radar/edge_1_data.pkl"
+    },
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 1,
@@ -12,9 +19,6 @@
 
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "radar",
-
-    "_注释_data_path": "本边侧的训练数据文件",
-    "data_path": "dataset/splits/radar/edge_1_data.pkl",
 
     "_注释_teacher_model_type": "教师模型类型（用于生成软标签）",
     "teacher_model_type": "complex_resnet50_radar_with_attention",

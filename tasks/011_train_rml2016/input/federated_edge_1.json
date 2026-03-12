@@ -1,11 +1,15 @@
 {
-    "_注释": "联邦学习 - 边侧1训练配置（分布式模式下在边侧机器1运行）",
+    "_部署模式": "多机专用 | 阶段3 | 边侧机器1运行",
+    "_注释": "联邦学习 - 边侧1本地训练",
+
+    "_注释_input_data": "联邦学习同步目录，边侧每轮从此目录轮询 global_model_round_*.pth",
+    "input_data": {
+        "sync_dir": "tasks/011_train_rml2016/output/federated_train",
+        "data_path": "dataset/splits/rml2016/edge_1_data.pkl"
+    },
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 1,
-
-    "_注释_data_path": "本边侧的训练数据文件",
-    "data_path": "dataset/splits/rml2016/edge_1_data.pkl",
 
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "rml2016",

@@ -1,5 +1,15 @@
 {
+    "_部署模式": "单机专用 | 阶段2 | 一台机器循环处理所有边",
     "_注释_模式": "分别蒸馏模式：每个边用自己的本地数据 + 教师模型蒸馏",
+
+    "_注释_input_data": "上一步（cloud_pretrain）的输出，作为本步骤的输入",
+    "input_data": {
+        "teacher_model_path": "tasks/012_train_radar/output/cloud_pretrain/teacher_model.pth",
+        "edge_data_paths": [
+            "dataset/splits/radar/edge_1_data.pkl",
+            "dataset/splits/radar/edge_2_data.pkl"
+        ]
+    },
 
     "_注释_student_model_type": "学生模型类型（边侧轻量模型）",
     "student_model_type": "real_resnet20_radar_h",
@@ -9,12 +19,6 @@
 
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "radar",
-
-    "_注释_edge_data_paths": "各边侧的本地数据文件（触发分别蒸馏模式）",
-    "edge_data_paths": [
-        "dataset/splits/radar/edge_1_data.pkl",
-        "dataset/splits/radar/edge_2_data.pkl"
-    ],
 
     "_注释_teacher_model_type": "教师模型类型（用于生成软标签）",
     "teacher_model_type": "complex_resnet50_radar_with_attention",
