@@ -17,7 +17,7 @@
     "num_rounds": 30,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7",
+    "device": "cuda:0",
 
     "_注释_init_model_path": "全局模型初始权重，null=随机初始化",
     "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth",
