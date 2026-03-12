@@ -21,11 +21,36 @@ import traceback
 
 sys.path.append(os.path.dirname(__file__))
 
+import re
+
 from callback.registry import execute_task
 # 导入 callback 模块以触发 @register_task 装饰器注册
 from callback import device_callback, edge_callback, cloud_callback, train_callback
 from datetime import datetime
 from config_refactor import PIPELINE_MODES, SUPPORTED_TASKS
+
+
+def parse_config_name(config_name):
+    """
+    从配置文件名解析回调函数名和 edge_id
+
+    规则：
+    - cloud_pretrain → ('cloud_pretrain', None)
+    - edge_kd_1     → ('edge_kd', 1)
+    - federated_cloud → ('federated_cloud', None)
+    - federated_edge_2 → ('federated_edge', 2)
+
+    Returns:
+        (callback_base, edge_id): 回调函数基础名和边侧ID
+    """
+    config_name = config_name.replace('.json', '')
+    match = re.match(r'^(.+?)_(\d+)$', config_name)
+    if match:
+        base = match.group(1)
+        num = int(match.group(2))
+        if base in ('edge_kd', 'federated_edge'):
+            return base, num
+    return config_name, None
 
 
 def collect_all_timings(task_id):
@@ -270,26 +295,37 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 流水线模式
+  # 流水线模式（单机串联执行）
   python run_task.py --mode device_to_edge_to_cloud --task_id 001_COLLAB_link11_test
   python run_task.py --mode full_train --task_id 004_train_link11
 
-  # 单步骤模式（分布式部署）
-  python run_task.py --step edge_kd --task_id 004_train_link11
+  # 配置文件驱动模式（推荐，分布式部署）
+  python run_task.py --task_id 004_train_link11 --config cloud_pretrain
+  python run_task.py --task_id 004_train_link11 --config edge_kd_1
+  python run_task.py --task_id 004_train_link11 --config edge_kd_2
+  python run_task.py --task_id 004_train_link11 --config federated_cloud
+  python run_task.py --task_id 004_train_link11 --config federated_edge_1
+  python run_task.py --task_id 004_train_link11 --config federated_edge_2
+
+  # 单步骤模式（向后兼容）
+  python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 1
   python run_task.py --step federated_server --task_id 004_train_link11
-  python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1
 
   # 最后一步加 --summary 显示全局耗时汇总并写入报告
   python run_task.py --step cloud_infer --task_id 001 --summary
         """
     )
 
-    # --mode 和 --step 二选一
+    # --mode / --step / --config 三选一
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--mode", choices=list(PIPELINE_MODES.keys()),
                        help="流水线模式（多步骤串联执行）")
     group.add_argument("--step", choices=SUPPORTED_TASKS,
                        help="单步骤模式（独立执行一个步骤，用于分布式部署）")
+    group.add_argument("--config", type=str, default=None,
+                       help="配置文件驱动模式：指定 JSON 配置文件名（不含.json），"
+                            "文件名决定调用的回调函数，边侧ID从文件名解析。"
+                            "例如: cloud_pretrain, edge_kd_1, federated_cloud, federated_edge_2")
 
     parser.add_argument("--task_id", required=True,
                         help="任务ID（对应 tasks/ 下的目录名）")
@@ -313,11 +349,24 @@ def main():
 
     if args.mode:
         pipeline = PIPELINE_MODES[args.mode]
-        show_summary = True  # --mode 始终显示全局汇总
+        show_summary = True
+    elif args.config:
+        config_name = args.config.replace('.json', '')
+        callback_base, edge_id = parse_config_name(config_name)
+        pipeline = [callback_base]
+        extra_kwargs['config_name'] = config_name
+        if edge_id is not None:
+            extra_kwargs['edge_id'] = edge_id
+        show_summary = args.summary
+
+        # 验证配置文件存在
+        config_file = f"./tasks/{args.task_id}/input/{config_name}.json"
+        if not os.path.exists(config_file):
+            print(f"[错误] 配置文件不存在: {config_file}")
+            return
     else:
-        # --step 模式：单步骤作为长度为 1 的流水线
         pipeline = [args.step]
-        show_summary = args.summary  # --step 需要手动加 --summary
+        show_summary = args.summary
 
     run_pipeline(args.task_id, pipeline, extra_kwargs=extra_kwargs, show_summary=show_summary)
 

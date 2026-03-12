@@ -55,8 +55,9 @@ SUPPORTED_TASKS = [
     'cloud_pretrain',           # 预训练教师模型
     'edge_kd',                  # 知识蒸馏-各边分别蒸馏
     'federated_train',          # 联邦学习训练（单机模拟）
-    'federated_server',         # 联邦学习-云侧聚合（分布式模式）
+    'federated_cloud',          # 联邦学习-云侧聚合（分布式模式）
     'federated_edge',           # 联邦学习-边侧本地训练（分布式模式）
+    'federated_server',         # 向后兼容旧名称 → federated_cloud
 ]
 
 # ==================== 支持的流水线模式 ====================
@@ -69,8 +70,9 @@ PIPELINE_MODES = {
     'pretrain': ['cloud_pretrain'],
     'knowledge_distillation': ['edge_kd'],
     'federated_learning': ['federated_train'],
-    'federated_server': ['federated_server'],
+    'federated_cloud': ['federated_cloud'],
     'federated_edge': ['federated_edge'],
+    'federated_server': ['federated_cloud'],  # 向后兼容旧名称
     # 完整训练+推理
     'full_train': ['cloud_pretrain', 'edge_kd', 'federated_train'],
     'full_pipeline': ['cloud_pretrain', 'edge_kd', 'federated_train',
