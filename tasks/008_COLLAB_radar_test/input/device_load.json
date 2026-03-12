@@ -9,7 +9,7 @@
     "batch_size": 32,
 
     "_注释_max_files":    "目录模式下最多加载几个batch文件，null=全部加载，3=快速测试",
-    "max_files": 10,
+    "max_files": 60,
 
     "_注释_num_batches":  "限制总样本数=num_batches×batch_size，null=不限制",
     "num_batches": null

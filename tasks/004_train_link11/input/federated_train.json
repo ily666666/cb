@@ -27,7 +27,7 @@
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7",
+    "device": "cuda:6",
 
     "_注释_init_model_path": "全局模型初始权重。填蒸馏产出的student_model.pth可加速收敛，null=随机初始化",
     "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth"

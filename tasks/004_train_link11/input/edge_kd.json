@@ -35,5 +35,5 @@
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7"
+    "device": "cuda:6"
 }
