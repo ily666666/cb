@@ -29,7 +29,7 @@
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7",
+    "device": "cuda:0",
 
     "_注释_sync_timeout": "等待全局模型的超时时间（秒）",
     "sync_timeout": 1800

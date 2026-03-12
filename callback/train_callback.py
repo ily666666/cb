@@ -221,7 +221,7 @@ def _generate_soft_labels_from_teacher(teacher, X_train, batch_size, temperature
 # ================================================================
 
 @register_task
-def cloud_pretrain_callback(task_id):
+def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """
     云侧预训练教师模型
 
@@ -236,7 +236,8 @@ def cloud_pretrain_callback(task_id):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    config_path = f"./tasks/{task_id}/input/cloud_pretrain.json"
+    config_name = config_name or 'cloud_pretrain'
+    config_path = f"./tasks/{task_id}/input/{config_name}.json"
     param_list = ['data_path', 'dataset_type', 'model_type', 'num_classes', 'epochs']
     result, config = check_parameters(config_path, param_list)
     if 'error' in result:
@@ -684,7 +685,7 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
 # ================================================================
 
 @register_task
-def federated_train_callback(task_id):
+def federated_train_callback(task_id, config_name=None, **kwargs):
     """
     联邦学习训练（FedAvg，文件系统方式）
 
