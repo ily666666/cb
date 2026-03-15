@@ -1,0 +1,30 @@
+{
+    "_部署模式": "单机/多机共用 | 阶段1 | 云侧机器运行",
+
+    "_注释_input_data": "数据准备步骤（prepare_data_splits.py）的输出，作为本步骤的输入",
+    "data_path": "dataset/splits/link11/cloud_data.pkl",
+
+    "_注释_dataset_type": "数据集类型，决定标签映射和信号长度",
+    "dataset_type": "link11",
+
+    "_注释_model_type": "教师模型类型（云侧大模型）",
+    "model_type": "complex_resnet50_link11_with_attention",
+
+    "_注释_num_classes": "分类数，link11=7",
+    "num_classes": 7,
+
+    "_注释_epochs": "训练轮数，一般 30~100",
+    "epochs": 10,
+
+    "_注释_batch_size": "训练批次大小",
+    "batch_size": 2048,
+
+    "_注释_learning_rate": "初始学习率，配合 CosineAnnealing 自动衰减",
+    "learning_rate": 0.001,
+
+    "_注释_weight_decay": "L2 正则化系数",
+    "weight_decay": 1e-4,
+
+    "_注释_device": "训练设备",
+    "device": "cuda:6"
+}

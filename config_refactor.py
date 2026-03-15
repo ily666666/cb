@@ -58,6 +58,18 @@ SUPPORTED_TASKS = [
     'federated_cloud',          # 联邦学习-云侧聚合（分布式模式）
     'federated_edge',           # 联邦学习-边侧本地训练（分布式模式）
     'federated_server',         # 向后兼容旧名称 → federated_cloud
+    # link11 数据集专用
+    'link11_device_load', 'link11_edge_infer', 'link11_cloud_infer', 'link11_cloud_direct_infer',
+    'link11_cloud_pretrain', 'link11_edge_kd', 'link11_federated_train',
+    'link11_federated_cloud', 'link11_federated_edge', 'link11_federated_server',
+    # rml2016 数据集专用
+    'rml2016_device_load', 'rml2016_edge_infer', 'rml2016_cloud_infer', 'rml2016_cloud_direct_infer',
+    'rml2016_cloud_pretrain', 'rml2016_edge_kd', 'rml2016_federated_train',
+    'rml2016_federated_cloud', 'rml2016_federated_edge', 'rml2016_federated_server',
+    # radar 数据集专用
+    'radar_device_load', 'radar_edge_infer', 'radar_cloud_infer', 'radar_cloud_direct_infer',
+    'radar_cloud_pretrain', 'radar_edge_kd', 'radar_federated_train',
+    'radar_federated_cloud', 'radar_federated_edge', 'radar_federated_server',
 ]
 
 # ==================== 支持的流水线模式 ====================

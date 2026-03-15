@@ -1,0 +1,7 @@
+{
+    "data_path": "run/data/link11_5000.pkl",
+    "dataset_type": "link11",
+    "batch_size": 32,
+    "max_files": null,
+    "num_batches": null
+}

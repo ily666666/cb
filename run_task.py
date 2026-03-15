@@ -26,6 +26,11 @@ import re
 from callback.registry import execute_task
 # 导入 callback 模块以触发 @register_task 装饰器注册
 from callback import device_callback, edge_callback, cloud_callback, train_callback
+from callback import (
+    link11_device_callback, link11_edge_callback, link11_cloud_callback, link11_train_callback,
+    rml2016_device_callback, rml2016_edge_callback, rml2016_cloud_callback, rml2016_train_callback,
+    radar_device_callback, radar_edge_callback, radar_cloud_callback, radar_train_callback,
+)
 from datetime import datetime
 from config_refactor import PIPELINE_MODES, SUPPORTED_TASKS
 
@@ -39,6 +44,9 @@ def parse_config_name(config_name):
     - edge_kd_1     → ('edge_kd', 1)
     - federated_cloud → ('federated_cloud', None)
     - federated_edge_2 → ('federated_edge', 2)
+    - link11_cloud_pretrain → ('link11_cloud_pretrain', None)
+    - link11_edge_kd_1 → ('link11_edge_kd', 1)
+    - link11_federated_edge_2 → ('link11_federated_edge', 2)
 
     Returns:
         (callback_base, edge_id): 回调函数基础名和边侧ID
@@ -48,7 +56,10 @@ def parse_config_name(config_name):
     if match:
         base = match.group(1)
         num = int(match.group(2))
-        if base in ('edge_kd', 'federated_edge'):
+        # 支持原始和数据集前缀版本
+        edge_kd_bases = ['edge_kd', 'link11_edge_kd', 'rml2016_edge_kd', 'radar_edge_kd']
+        fed_edge_bases = ['federated_edge', 'link11_federated_edge', 'rml2016_federated_edge', 'radar_federated_edge']
+        if base in edge_kd_bases + fed_edge_bases:
             return base, num
     return config_name, None
 
