@@ -159,7 +159,7 @@ def simulate_transfer(file_path, bandwidth_mbps):
     print(f"[网络模拟] 大小: {file_size_mb:.2f} MB, 带宽: {bandwidth_mbps} MB/s")
     print(f"[网络模拟] 模拟传输耗时: {transfer_time:.2f}s ...")
     
-    time.sleep(transfer_time)
+    # time.sleep(transfer_time)
     
     print(f"[网络模拟] 传输完成")
     

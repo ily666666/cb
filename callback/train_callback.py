@@ -487,9 +487,28 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
         'train_time': total_time,
     }
 
-
 @register_task
 def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    知识蒸馏统一入口 - 根据 config_name 或 edge_id 路由到具体的边侧回调
+    """
+    # 从 config_name 解析 edge_id
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    
+    # 根据 edge_id 调用对应的回调
+    if edge_id == 1:
+        return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """
     知识蒸馏 — 各边分别蒸馏
 
@@ -531,11 +550,11 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    output_dir = f"./tasks/{task_id}/output/edge_kd"
+    output_dir = f"./tasks/{task_id}/output/edge_kd_1"
 
     # 确定要处理的边和数据路径（优先从 input_data 读取）
     input_data = config.get('input_data', {})
-    data_path = input_data.get('data_path', config.get('data_path'))
+    data_path = config.get('data_path', {})
     edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
     if data_path and edge_id is not None:
         edges_to_process = [(edge_id - 1, data_path)]
@@ -550,7 +569,7 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
             edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
             single_edge_mode = True
         else:
-            if check_output_exists(task_id, 'edge_kd', 'student_model.pth'):
+            if check_output_exists(task_id, 'edge_kd_1', 'student_model.pth'):
                 print(f"[跳过] 学生模型已存在")
                 return {'status': 'cached'}
             edges_to_process = list(enumerate(edge_data_paths))
@@ -573,9 +592,9 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
     # 加载教师模型（优先从 input_data 读取上一步输出路径）
     input_data = config.get('input_data', {})
     teacher_model_type = config.get('teacher_model_type')
-    teacher_model_path = input_data.get('teacher_model_path',
-        config.get('teacher_model_path',
-            f"./tasks/{task_id}/output/cloud_pretrain/teacher_model.pth"))
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"./tasks/{task_id}/output/{parent_folder}/{file_name}"
 
     if not os.path.exists(teacher_model_path):
         return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
@@ -656,7 +675,205 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
     }, os.path.join(output_dir, 'student_model.pth'))
 
     # 报告
-    result_dir = f"./tasks/{task_id}/result/edge_kd"
+    result_dir = f"./tasks/{task_id}/result/edge_kd_1"
+    os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
+    with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n知识蒸馏训练报告（分别蒸馏）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"学生模型: {student_model_type}\n")
+        f.write(f"教师模型: {teacher_model_type}\n")
+        f.write(f"蒸馏参数: alpha={alpha}, temperature={temperature}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        for eid, r in all_results:
+            f.write(f"边侧 {eid}: 最佳准确率 {r['best_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
+
+    print(f"\n{'='*60}")
+    print(f"[完成] 蒸馏结果汇总:")
+    for eid, r in all_results:
+        marker = " ← student_model.pth" if eid == best_eid else ""
+        print(f"  边{eid}: {r['best_acc']*100:.2f}%{marker}")
+    print(f"{'='*60}")
+
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
+
+@register_task
+def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    知识蒸馏 — 各边分别蒸馏
+
+    加载教师模型，每个边用自己的本地数据生成软标签并训练学生模型。
+
+    单机模式: config=edge_kd → 处理所有边
+    分布式模式: config=edge_kd_1 → 只处理边1
+
+    配置: input/edge_kd.json 或 input/edge_kd_{N}.json
+    运行:
+      单机: python run_task.py --task_id xxx --config edge_kd
+      分布式: python run_task.py --task_id xxx --config edge_kd_1
+    """
+    # 解析配置文件路径
+    if config_name:
+        config_path = f"./tasks/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"./tasks/{task_id}/input/edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/edge_kd.json"
+    else:
+        config_path = f"./tasks/{task_id}/input/edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    output_dir = f"./tasks/{task_id}/output/edge_kd_2"
+
+    # 确定要处理的边和数据路径（优先从 input_data 读取）
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'edge_kd_2', 'student_model.pth'):
+                print(f"[跳过] 学生模型已存在")
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    mode_label = f"边 {edge_id}" if single_edge_mode else f"全部 {num_edges} 个边"
+    print(f"\n{'='*60}")
+    print(f"[知识蒸馏] 分别蒸馏 — {mode_label}")
+    print(f"{'='*60}")
+
+    # 单边模式下的缓存检查
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] student_edge_{edge_id}.pth 已存在")
+            return {'status': 'cached'}
+
+    # 加载教师模型（优先从 input_data 读取上一步输出路径）
+    input_data = config.get('input_data', {})
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"./tasks/{task_id}/output/{parent_folder}/{file_name}"
+
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+    print(f"[教师] 加载完成: {teacher_model_type} ← {teacher_model_path}")
+    print(f"[配置] 每边 {epochs} epoch, alpha={alpha}, T={temperature}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        print(f"\n{'='*60}")
+        print(f"[边侧 {eid}/{num_edges}] 蒸馏开始 (数据: {edge_path})")
+        print(f"{'='*60}")
+
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        print(f"[边侧 {eid}] 训练集: {len(X_train)}, 测试集: {len(X_test)}")
+
+        print(f"[边侧 {eid}] 生成软标签...")
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device)
+        print(f"[边侧 {eid}] 软标签: {soft_labels.shape}")
+
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}")
+
+        torch.save({
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
+
+        all_results.append((eid, kd_result))
+
+    # 单边模式：只保存该边的模型，不生成 student_model.pth（等所有边完成后由 federated_train 聚合）
+    if single_edge_mode:
+        eid, r = all_results[0]
+        print(f"\n[完成] 边 {eid} 蒸馏完成: {r['best_acc']*100:.2f}%")
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    # 全量模式：保存最佳边的模型作为 student_model.pth
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+
+    # 报告
+    result_dir = f"./tasks/{task_id}/result/edge_kd_2"
     os.makedirs(result_dir, exist_ok=True)
     total_time = sum(r['train_time'] for _, r in all_results)
     with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
@@ -736,8 +953,8 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
     input_data = config.get('input_data', {})
-    init_model_path = input_data.get('init_model_path',
-        config.get('init_model_path', None))
+    init_model_path = input_data.get('file_name',
+        config.get('file_name', None))
 
     num_edges = len(edge_data_paths)
     output_dir = f"./tasks/{task_id}/output/federated_train"
@@ -765,7 +982,7 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     # 2. 初始化全局模型（从各边 KD 模型聚合）
     global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
 
-    edge_kd_dir = f"./tasks/{task_id}/output/edge_kd"
+    edge_kd_dir = f"./tasks/{task_id}/output/edge_kd_2"
     per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth')
                       for i in range(num_edges)]
     has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
@@ -983,8 +1200,16 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     num_rounds = config['num_rounds']
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
     input_data = config.get('input_data', {})
-    init_model_path = input_data.get('init_model_path',
-        config.get('init_model_path', None))
+        # 修改后的代码
+    init_model_file = input_data.get('file_name')
+    init_model_parent = input_data.get('parent_folder')
+
+    if init_model_file and init_model_parent:
+        # 使用相对路径拼接
+        init_model_path = f"./tasks/{task_id}/output/{init_model_parent}/{init_model_file}"
+    else:
+        # 后备选项：使用旧的绝对路径配置
+        init_model_path = config.get('init_model_path', None)
     timeout = config.get('sync_timeout', 1800)
 
     num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
@@ -1123,9 +1348,28 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
         'num_rounds': num_rounds,
     }
 
-
 @register_task
 def federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    联邦学习统一入口 - 根据 config_name 或 edge_id 路由到具体的边侧回调
+    """
+    # 从 config_name 解析 edge_id
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    
+    # 根据 edge_id 调用对应的回调
+    if edge_id == 1:
+        return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """
     联邦学习 - 边侧本地训练（分布式模式）
 
@@ -1171,7 +1415,145 @@ def federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
     timeout = config.get('sync_timeout', 1800)
 
     input_data = config.get('input_data', {})
-    output_dir = input_data.get('sync_dir',
+    output_dir = config.get('sync_dir',
+        f"./tasks/{task_id}/output/federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 检查是否已完成
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_federated_model.pth')
+    if os.path.exists(final_model_path):
+        print(f"[跳过] 边 {edge_id} 最终模型已存在: {final_model_path}")
+        return {'status': 'cached'}
+
+    # 1. 加载本边侧数据（优先从 input_data 读取）
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    print(f"[加载] 边 {edge_id} 数据: {data_path}")
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False)
+    num_samples = len(X_train)
+    print(f"[加载] 训练集: {num_samples} 样本, 测试集: {len(X_test)} 样本")
+
+    criterion = nn.CrossEntropyLoss()
+
+    print(f"[配置] 轮数: {num_rounds}, 本地epoch: {local_epochs}")
+    print(f"\n[训练] 开始本地训练...")
+    start_time = time.time()
+
+    # 2. 逐轮训练
+    for round_idx in range(1, num_rounds + 1):
+        # 检查本轮是否已完成（断点续传）
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            print(f"  Round {round_idx}: 已存在，跳过")
+            continue
+
+        # 等待上一轮全局模型
+        prev_round = round_idx - 1
+        global_round_path = os.path.join(output_dir, f'global_model_round_{prev_round}.pth')
+        print(f"  Round {round_idx}: 等待 global_model_round_{prev_round}.pth ...")
+        _wait_for_file(global_round_path, timeout=timeout)
+
+        # 加载全局模型
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(
+                local_model, train_loader, local_optimizer, criterion, device,
+                epoch_info=(ep, local_epochs))
+
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+
+        # 保存本轮结果（含 num_samples 和 test_acc，供 server 聚合时使用）
+        torch.save({
+            'model_state_dict': local_model.state_dict(),
+            'model_type': edge_model_type,
+            'num_classes': num_classes,
+            'num_samples': num_samples,
+            'test_acc': test_acc,
+            'edge_id': edge_id,
+            'round': round_idx,
+        }, edge_round_path)
+
+        print(f"  Round {round_idx}/{num_rounds} | 边{edge_id} 测试准确率: {test_acc*100:.2f}%")
+
+    total_time = time.time() - start_time
+
+    # 3. 保存最终边侧模型（取最后一轮的模型）
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({
+            'model_state_dict': last_ckpt['model_state_dict'],
+            'model_type': edge_model_type,
+            'num_classes': num_classes,
+        }, final_model_path)
+
+    print(f"\n[完成] 边 {edge_id} 本地训练完成! 耗时: {total_time:.1f}s")
+    return {
+        'status': 'success',
+        'edge_id': edge_id,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
+
+@register_task
+def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    联邦学习 - 边侧本地训练（分布式模式）
+
+    在边侧运行，负责：
+    1. 每轮轮询等待 global_model_round_{r-1}.pth 出现
+    2. 加载全局模型 → 用本地数据训练 local_epochs 轮
+    3. 保存 edge_{id}_round_{r}.pth（含 test_acc 和 num_samples）
+    4. 所有轮次完成后保存最终 edge_{id}_model.pth
+
+    配置: input/federated_edge_{N}.json
+    运行: python run_task.py --task_id xxx --config federated_edge_1
+    """
+    # 解析配置文件路径
+    if config_name:
+        config_name_resolved = config_name
+    elif edge_id is not None:
+        edge_config = f"federated_edge_{edge_id}"
+        if os.path.exists(f"./tasks/{task_id}/input/{edge_config}.json"):
+            config_name_resolved = edge_config
+        else:
+            config_name_resolved = None
+    else:
+        return {'status': 'error', 'message': '需要指定 --config federated_edge_N 或 --edge_id 参数'}
+
+    config = _load_federated_config(task_id, config_name_resolved)
+
+    edge_id = config.get('edge_id', edge_id)
+    if edge_id is None:
+        return {'status': 'error', 'message': '配置文件缺少 edge_id'}
+
+    print(f"\n{'='*60}")
+    print(f"[联邦学习-边侧] 边 {edge_id} 本地训练启动")
+    print(f"{'='*60}")
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    timeout = config.get('sync_timeout', 1800)
+
+    input_data = config.get('input_data', {})
+    output_dir = config.get('sync_dir',
         f"./tasks/{task_id}/output/federated_train")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -1182,8 +1564,7 @@ def federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return {'status': 'cached'}
 
     # 1. 加载本边侧数据（优先从 input_data 读取）
-    data_path = input_data.get('data_path',
-        config.get('data_path'))
+    data_path = config.get('data_path')
     if not data_path and 'edge_data_paths' in config:
         data_path = config['edge_data_paths'][edge_id - 1]
     print(f"[加载] 边 {edge_id} 数据: {data_path}")

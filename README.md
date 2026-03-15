@@ -279,7 +279,7 @@ python run_task.py --mode device_to_edge_to_cloud --task_id 008_COLLAB_radar_tes
 | `pretrain` | cloud_pretrain | 预训练教师模型 |
 | `knowledge_distillation` | edge_kd | 知识蒸馏（各边分别蒸馏，需已有教师模型） |
 | `federated_learning` | federated_train | 联邦学习（单机模拟） |
-| `federated_cloud` | federated_cloud | 联邦学习-云侧聚合（分布式） |
+| `federated_server` | federated_server | 联邦学习-云侧聚合（分布式） |
 | `federated_edge` | federated_edge | 联邦学习-边侧训练（分布式） |
 | `full_train` | cloud_pretrain → edge_kd → federated_train | 完整训练 |
 | `full_pipeline` | 完整训练 + 协同推理（共 7 步） | 从训练到推理一条龙 |
@@ -404,10 +404,7 @@ cloud_pretrain ────→ edge_kd ────→ federated_train
 **配置文件** `input/cloud_pretrain.json`：
 ```json
 {
-    "_部署模式": "单机/多机共用 | 阶段1 | 云侧机器运行",
-    "input_data": {
-        "data_path": "dataset/splits/link11/cloud_data.pkl"
-    },
+    "data_path": "dataset/splits/link11/cloud_data.pkl",
     "dataset_type": "link11",
     "model_type": "complex_resnet50_link11_with_attention",
     "num_classes": 7,
@@ -421,7 +418,7 @@ cloud_pretrain ────→ edge_kd ────→ federated_train
 
 | 参数 | 说明 |
 |------|------|
-| `input_data.data_path` | 云侧预划分数据文件（PKL），由 `prepare_data_splits.py` 生成，包含 train/val/test |
+| `data_path` | 云侧预划分数据文件（PKL），由 `prepare_data_splits.py` 生成，包含 train/val/test |
 | `model_type` | 教师模型类型，通常用 `complex_resnet50_xxx` 系列 |
 | `epochs` | 训练轮数 |
 
@@ -451,20 +448,16 @@ python run_task.py --mode pretrain --task_id my_train_task
 
 加载教师模型，每个边用自己的本地数据生成软标签并训练学生模型（`real_resnet20`）。
 
-**配置文件** `input/edge_kd.json`（单机模式，处理所有边）：
+**配置文件** `input/edge_kd.json`：
 ```json
 {
-    "_部署模式": "单机专用 | 阶段2 | 一台机器循环处理所有边",
-    "input_data": {
-        "teacher_model_path": "tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth",
-        "edge_data_paths": [
-            "dataset/splits/link11/edge_1_data.pkl",
-            "dataset/splits/link11/edge_2_data.pkl"
-        ]
-    },
     "student_model_type": "real_resnet20_link11_h",
     "num_classes": 7,
     "dataset_type": "link11",
+    "edge_data_paths": [
+        "dataset/splits/link11/edge_1_data.pkl",
+        "dataset/splits/link11/edge_2_data.pkl"
+    ],
     "teacher_model_type": "complex_resnet50_link11_with_attention",
     "epochs": 30,
     "kd_alpha": 0.7,
@@ -477,11 +470,9 @@ python run_task.py --mode pretrain --task_id my_train_task
 
 | 参数 | 说明 |
 |------|------|
-| `input_data.teacher_model_path` | 上一步（cloud_pretrain）输出的教师模型权重路径 |
-| `input_data.edge_data_paths` | 各边侧的本地数据文件列表（单机模式） |
-| `input_data.data_path` | 本边侧的训练数据文件（分布式模式，在 edge_kd_N.json 中） |
 | `student_model_type` | 学生模型类型，通常用 `real_resnet20_xxx` 系列 |
-| `teacher_model_type` | 教师模型类型 |
+| `edge_data_paths` | 各边侧的本地数据文件列表 |
+| `teacher_model_type` | 教师模型类型，系统自动从 `output/cloud_pretrain/teacher_model.pth` 加载权重 |
 | `kd_alpha` | 软标签权重。0.7 表示总损失 = 30% CE + 70% KD |
 | `temperature` | 蒸馏温度，越高软标签越平滑，通常 2.0 ~ 8.0 |
 
@@ -496,25 +487,17 @@ python run_task.py --mode pretrain --task_id my_train_task
 python run_task.py --mode knowledge_distillation --task_id my_train_task
 ```
 
-### 阶段 3：联邦学习
+### 阶段 3：联邦学习（federated_train）
 
-联邦学习支持两种运行方式：单机模拟和分布式部署。
-
-#### 方式 A：单机模拟（`federated_train.json`）
-
-在一台机器上 for 循环模拟多个边侧的联邦学习过程，用于快速调试验证。
+模拟多个边侧节点各自用本地数据训练，然后聚合（FedAvg）。全局模型自动从蒸馏阶段的各边 KD 模型（`student_edge_*.pth`）聚合初始化。
 
 **配置文件** `input/federated_train.json`：
 ```json
 {
-    "_部署模式": "单机专用 | 阶段3 | 一台机器模拟所有边的联邦学习",
-    "input_data": {
-        "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth",
-        "edge_data_paths": [
-            "dataset/splits/link11/edge_1_data.pkl",
-            "dataset/splits/link11/edge_2_data.pkl"
-        ]
-    },
+    "edge_data_paths": [
+        "dataset/splits/link11/edge_1_data.pkl",
+        "dataset/splits/link11/edge_2_data.pkl"
+    ],
     "dataset_type": "link11",
     "edge_model_type": "real_resnet20_link11_h",
     "num_classes": 7,
@@ -522,77 +505,17 @@ python run_task.py --mode knowledge_distillation --task_id my_train_task
     "local_epochs": 1,
     "batch_size": 32,
     "learning_rate": 0.0001,
-    "device": "cuda:0"
-}
-```
-
-**运行**：
-```bash
-python run_task.py --mode federated_learning --task_id my_train_task
-```
-
-#### 方式 B：分布式部署（`federated_cloud.json` + `federated_edge_N.json`）
-
-云侧和各边侧分别在不同机器上独立启动，通过文件系统协调多轮迭代。每个节点有自己独立的 JSON 配置文件。
-
-**云侧配置** `input/federated_cloud.json`：
-```json
-{
-    "_部署模式": "多机专用 | 阶段3 | 云侧机器运行",
-    "input_data": {
-        "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth"
-    },
-    "num_edges": 2,
-    "dataset_type": "link11",
-    "edge_model_type": "real_resnet20_link11_h",
-    "num_classes": 7,
-    "num_rounds": 30,
     "device": "cuda:0",
-    "sync_timeout": 1800
+    "init_model_path": "tasks/004_train_link11/output/edge_kd/student_model.pth"
 }
 ```
 
-**边侧配置** `input/federated_edge_1.json`（边 2 同理）：
-```json
-{
-    "_部署模式": "多机专用 | 阶段3 | 边侧机器1运行",
-    "input_data": {
-        "sync_dir": "tasks/004_train_link11/output/federated_train",
-        "data_path": "dataset/splits/link11/edge_1_data.pkl"
-    },
-    "edge_id": 1,
-    "dataset_type": "link11",
-    "edge_model_type": "real_resnet20_link11_h",
-    "num_classes": 7,
-    "num_rounds": 30,
-    "local_epochs": 1,
-    "batch_size": 2048,
-    "learning_rate": 0.001,
-    "device": "cuda:0",
-    "sync_timeout": 1800
-}
-```
-
-| 参数 | 所在配置 | 说明 |
-|------|----------|------|
-| `input_data.init_model_path` | 云侧 | 上一步（edge_kd）输出的学生模型，作为全局模型初始权重 |
-| `input_data.sync_dir` | 边侧 | 联邦学习同步目录，边侧从此目录轮询全局模型 |
-| `input_data.data_path` | 边侧 | 本边侧的训练数据文件 |
-| `num_edges` | 云侧 | 参与联邦学习的边侧节点数量 |
-| `edge_id` | 边侧 | 当前边侧节点 ID |
-| `num_rounds` | 云+边 | 联邦学习通信轮数 |
-| `local_epochs` | 边侧 | 每轮本地训练轮数（建议设 1） |
-| `sync_timeout` | 云+边 | 文件轮询超时时间（秒） |
-
-**运行**：
-```bash
-# 云侧机器
-python run_task.py --task_id 004_train_link11 --config federated_cloud
-# 边侧机器1
-python run_task.py --task_id 004_train_link11 --config federated_edge_1
-# 边侧机器2
-python run_task.py --task_id 004_train_link11 --config federated_edge_2
-```
+| 参数 | 说明 |
+|------|------|
+| `edge_data_paths` | 各边侧的数据文件列表，每个文件代表一个边侧节点的本地数据。当前架构为 2 个边 |
+| `num_rounds` | 联邦学习通信轮数 |
+| `local_epochs` | 每轮中每个边侧的本地训练轮数（建议设 1，避免过拟合本地数据） |
+| `init_model_path` | 后备选项，通常无需设置——系统自动从各边 KD 模型聚合初始化 |
 
 **输出**：
 - `output/federated_train/global_model.pth` — 聚合后的全局模型
@@ -600,6 +523,11 @@ python run_task.py --task_id 004_train_link11 --config federated_edge_2
 - `output/federated_train/edge_2_model.pth` — 边 2 最终模型
 - `output/federated_train/train_history.pkl` — 各轮准确率
 - `result/federated_train/federated_report.txt` — 联邦学习报告
+
+**单独运行**：
+```bash
+python run_task.py --mode federated_learning --task_id my_train_task
+```
 
 ### 完整训练流程（一键执行）
 
@@ -621,17 +549,10 @@ python run_task.py --mode full_pipeline --task_id my_train_task
 
 ```
 tasks/004_train_link11/input/
-├── cloud_pretrain.json      # [单机/多机共用] 阶段1：预训练教师模型（云侧）
-├── edge_kd.json             # [单机专用]     阶段2：各边分别蒸馏（一台机器循环处理所有边）
-├── edge_kd_1.json           # [多机专用]     阶段2：边1蒸馏（边侧机器1运行）
-├── edge_kd_2.json           # [多机专用]     阶段2：边2蒸馏（边侧机器2运行）
-├── federated_train.json     # [单机专用]     阶段3：联邦学习（一台机器模拟所有边）
-├── federated_cloud.json     # [多机专用]     阶段3：云侧聚合（云侧机器运行）
-├── federated_edge_1.json    # [多机专用]     阶段3：边1训练（边侧机器1运行）
-└── federated_edge_2.json    # [多机专用]     阶段3：边2训练（边侧机器2运行）
+├── cloud_pretrain.json      # 阶段1：预训练教师模型
+├── edge_kd.json             # 阶段2：各边分别蒸馏
+└── federated_train.json     # 阶段3：联邦学习
 ```
-
-> **如何区分单机/多机配置**：每个 JSON 文件的第一个字段 `_部署模式` 标明了该文件的适用场景（单机专用 / 多机专用 / 共用）、所属阶段和运行位置。
 
 **运行前需要先生成数据**（参见上方「数据集生成与划分」章节）：
 
@@ -643,35 +564,31 @@ python training_data_generation/link11_gene5.py
 python run/prepare_data_splits.py --dataset_type link11 --num_edges 2 --output_dir dataset/splits
 ```
 
-生成后的数据对应关系：
+生成后的数据对应关系（方案B）：
 
 | 文件 | 用途 | 引用它的配置 |
 |------|------|-------------|
 | `dataset/splits/link11/cloud_data.pkl` | 预训练教师模型（云侧 80% 数据） | `cloud_pretrain.json` |
-| `dataset/splits/link11/edge_1_data.pkl` | 边 1 蒸馏 + 联邦学习 | `edge_kd_1.json`、`federated_edge_1.json` |
-| `dataset/splits/link11/edge_2_data.pkl` | 边 2 蒸馏 + 联邦学习 | `edge_kd_2.json`、`federated_edge_2.json` |
+| `dataset/splits/link11/edge_1_data.pkl` | 边 1 蒸馏 + 联邦学习 | `edge_kd.json`、`federated_train.json` |
+| `dataset/splits/link11/edge_2_data.pkl` | 边 2 蒸馏 + 联邦学习 | `edge_kd.json`、`federated_train.json` |
 
 **运行命令**：
 
 ```bash
-# ====== 方式 A：单机一键执行 ======
+# 仅预训练教师模型（阶段 1）
+python run_task.py --mode pretrain --task_id 004_train_link11
+
+# 知识蒸馏（各边分别蒸馏，需已有教师模型）
+python run_task.py --mode knowledge_distillation --task_id 004_train_link11
+
+# 仅联邦学习（阶段 3，需先完成阶段 2 产出各边 KD 模型）
+python run_task.py --mode federated_learning --task_id 004_train_link11
+
+# 一键跑完整训练（阶段 1→2→3 全部串联）
 python run_task.py --mode full_train --task_id 004_train_link11
-
-# ====== 方式 B：配置文件驱动（推荐，分布式部署）======
-# 阶段 1：云侧预训练
-python run_task.py --task_id 004_train_link11 --config cloud_pretrain
-
-# 阶段 2：各边分别蒸馏（各边侧机器分别执行）
-python run_task.py --task_id 004_train_link11 --config edge_kd_1
-python run_task.py --task_id 004_train_link11 --config edge_kd_2
-
-# 阶段 3：联邦学习（云侧和各边侧同时启动）
-python run_task.py --task_id 004_train_link11 --config federated_cloud
-python run_task.py --task_id 004_train_link11 --config federated_edge_1
-python run_task.py --task_id 004_train_link11 --config federated_edge_2
 ```
 
-> **注意**：`--config` 模式下，配置文件名即决定调用的回调函数和边侧 ID。各模式支持断点续传——已完成的阶段会自动跳过，删除对应 `output/` 子目录可强制重跑。
+> **注意**：`knowledge_distillation` 模式**不含**预训练，需要已有教师模型（自动从 `output/cloud_pretrain/teacher_model.pth` 加载）。如果教师模型还没训练，先跑 `pretrain` 或直接用 `full_train` 一键完成全部阶段。各模式支持断点续传——已完成的阶段会自动跳过，删除对应 `output/` 子目录可强制重跑。
 
 ---
 
@@ -679,31 +596,17 @@ python run_task.py --task_id 004_train_link11 --config federated_edge_2
 
 本系统支持将各步骤拆分到不同机器上独立执行。文件总线架构天然适配分布式——每个步骤只通过 `output/` 目录读写文件，你只需在各机器间同步该目录即可。
 
-### 核心用法：`--config` 配置文件驱动（推荐）
+### 核心用法：`--step` 单步骤执行
 
-使用 `--config` 参数指定配置文件名，文件名即决定调用的回调函数和边侧 ID：
-
-```bash
-python run_task.py --task_id <任务ID> --config <配置文件名>
-```
-
-配置文件名解析规则：
-- `cloud_pretrain` → 调用 `cloud_pretrain_callback`
-- `edge_kd_1` → 调用 `edge_kd_callback(edge_id=1)`
-- `federated_cloud` → 调用 `federated_cloud_callback`
-- `federated_edge_2` → 调用 `federated_edge_callback(edge_id=2)`
-
-### 兼容用法：`--step` 单步骤执行
-
-使用 `--step` 替代 `--mode`，只执行一个步骤（`--mode` / `--step` / `--config` 三选一）：
+使用 `--step` 替代 `--mode`，只执行一个步骤（两者互斥，二选一）：
 
 ```bash
 python run_task.py --step <步骤名> --task_id <任务ID> [--edge_id N] [--summary]
 ```
 
-所有可用步骤：`device_load`、`edge_infer`、`cloud_infer`、`cloud_direct_infer`、`cloud_pretrain`、`edge_kd`、`federated_train`、`federated_cloud`、`federated_edge`
+所有可用步骤：`device_load`、`edge_infer`、`cloud_infer`、`cloud_direct_infer`、`cloud_pretrain`、`edge_kd`、`federated_train`、`federated_server`、`federated_edge`
 
-**`--summary` 开关**：`--step` / `--config` 模式下默认只显示当前步骤的耗时。在最后一步加上 `--summary`，会扫描该 task 下所有已有的 `timing.json`，显示全局耗时汇总（纯推理、加载+热身、传输等），并写入 `result/timing_summary.txt` 及追加到各报告文件末尾。`--mode` 模式自动开启，无需手动加。
+**`--summary` 开关**：`--step` 模式下默认只显示当前步骤的耗时。在最后一步加上 `--summary`，会扫描该 task 下所有已有的 `timing.json`，显示全局耗时汇总（纯推理、加载+热身、传输等），并写入 `result/timing_summary.txt` 及追加到各报告文件末尾。`--mode` 模式自动开启，无需手动加。
 
 ### 推理任务：单机 vs 多机命令对照
 
@@ -765,27 +668,27 @@ python run_task.py --step cloud_infer --task_id 001_COLLAB_link11_test --summary
 | **单机** | `python run_task.py --mode full_train --task_id 004_train_link11` |
 
 ```bash
-# 多机拆分（3 台机器，使用 --config 模式）：
+# 多机拆分（3 台机器）：
 
 # ====== 阶段 1：云侧预训练 ======
 # [云侧机器]
-python run_task.py --task_id 004_train_link11 --config cloud_pretrain
+python run_task.py --step cloud_pretrain --task_id 004_train_link11
 # >>> 同步 output/cloud_pretrain/ 到两台边侧机器 <<<
 
 # ====== 阶段 2：各边分别蒸馏（各边只处理自己的数据）======
 # [边侧机器1]
-python run_task.py --task_id 004_train_link11 --config edge_kd_1
+python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 1
 # [边侧机器2]
-python run_task.py --task_id 004_train_link11 --config edge_kd_2
+python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 2
 # >>> 同步 output/edge_kd/ 回云侧机器 <<<
 
 # ====== 阶段 3：联邦学习（3 台同时启动，自动轮询协调）======
 # [云侧机器]
-python run_task.py --task_id 004_train_link11 --config federated_cloud
+python run_task.py --step federated_server --task_id 004_train_link11
 # [边侧机器1]
-python run_task.py --task_id 004_train_link11 --config federated_edge_1
+python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1
 # [边侧机器2]
-python run_task.py --task_id 004_train_link11 --config federated_edge_2
+python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 2
 ```
 
 #### 5. 只跑知识蒸馏（教师模型已有）
@@ -797,9 +700,9 @@ python run_task.py --task_id 004_train_link11 --config federated_edge_2
 ```bash
 # 多机拆分：各边侧独立蒸馏（需先同步 output/cloud_pretrain/ 到各边侧）
 # [边侧机器1]
-python run_task.py --task_id 004_train_link11 --config edge_kd_1
+python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 1
 # [边侧机器2]
-python run_task.py --task_id 004_train_link11 --config edge_kd_2
+python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 2
 ```
 
 #### 6. 只跑联邦学习
@@ -811,11 +714,11 @@ python run_task.py --task_id 004_train_link11 --config edge_kd_2
 ```bash
 # 多机拆分（3 台同时启动）：
 # [云侧机器]
-python run_task.py --task_id 004_train_link11 --config federated_cloud
+python run_task.py --step federated_server --task_id 004_train_link11
 # [边侧机器1]
-python run_task.py --task_id 004_train_link11 --config federated_edge_1
+python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1
 # [边侧机器2]
-python run_task.py --task_id 004_train_link11 --config federated_edge_2
+python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 2
 ```
 
 ### 联邦学习分布式协调机制
@@ -824,8 +727,8 @@ python run_task.py --task_id 004_train_link11 --config federated_edge_2
 
 | 方式 | 命令 | 适用场景 |
 |------|------|---------|
-| 单机模拟 | `--mode federated_learning` 或 `--config federated_train` | 单机测试，串行模拟所有边 |
-| 分布式 | 云侧 `--config federated_cloud` + 各边侧 `--config federated_edge_N` | 真正多机部署 |
+| 单机模拟 | `--mode federated_learning` 或 `--step federated_train` | 单机测试，串行模拟所有边 |
+| 分布式 | 云侧 `--step federated_server` + 各边侧 `--step federated_edge --edge_id N` | 真正多机部署 |
 
 **文件协议**（各机器通过这些文件自动协调）：
 
@@ -865,11 +768,12 @@ output/federated_train/
 ```
 云侧机器:                             边侧机器1:                          边侧机器2:
 ─────────────────────                ─────────────────────               ─────────────────────
-1. --config cloud_pretrain           (等待同步)                           (等待同步)
+1. --step cloud_pretrain             (等待同步)                           (等待同步)
    → 同步 output/cloud_pretrain/ 到边侧
-                                     2. --config edge_kd_1               2. --config edge_kd_2
+                                     2. --step edge_kd --edge_id 1       2. --step edge_kd --edge_id 2
    → 同步 output/edge_kd/ 回云侧
-3. --config federated_cloud          3. --config federated_edge_1        3. --config federated_edge_2
+3. --step federated_server           3. --step federated_edge             3. --step federated_edge
+                                        --edge_id 1                         --edge_id 2
    保存 global_round_0
    → 同步到边侧                         ← 等到 global_round_0               ← 等到 global_round_0
                                         训练→保存 edge_1_r1                 训练→保存 edge_2_r1
@@ -908,10 +812,7 @@ output/federated_train/
 | `kd_alpha` | edge_kd.json | 软标签权重 (0~1)，越大越依赖教师知识，默认 0.7 |
 | `num_rounds` | federated_train.json | 联邦学习通信轮数 |
 | `local_epochs` | federated_train.json | 每轮本地训练轮数 |
-| `input_data.init_model_path` | federated_train/cloud.json | 全局模型初始权重路径（来自 edge_kd 输出） |
-| `input_data.sync_dir` | federated_edge_N.json | 联邦学习同步目录 |
-| `input_data.teacher_model_path` | edge_kd.json | 教师模型路径（来自 cloud_pretrain 输出） |
-| `input_data.data_path` | cloud_pretrain.json | 训练数据路径（来自数据准备步骤） |
+| `init_model_path` | federated_train.json | 全局模型初始权重路径，`null` = 随机初始化 |
 
 ---
 
@@ -1070,7 +971,7 @@ Remove-Item -Recurse -Force "./tasks/my_task/output","./tasks/my_task/result"
 | `011_train_rml2016` | rml2016 | 训练 |
 | `012_train_radar` | radar | 训练 |
 
-### 多机命令（`--config`，分步执行）
+### 多机命令（`--step`，分步执行）
 
 > **切换数据集**：多机命令只需把 `task_id` 替换为对应数据集的任务ID即可（见下方对照表）。
 
@@ -1097,17 +998,17 @@ Remove-Item -Recurse -Force "./tasks/my_task/output","./tasks/my_task/result"
 
 | 场景 | 步骤 | 机器 | 命令 | 完成后同步 |
 |------|------|------|------|-----------|
-| **完整训练** | ① | 云侧 | `python run_task.py --config cloud_pretrain --task_id 004_train_link11` | `output/cloud_pretrain/` → 各边侧 |
-| | ② | 边侧1 | `python run_task.py --config edge_kd_1 --task_id 004_train_link11` | `output/edge_kd/` → 云侧 |
-| | ② | 边侧2 | `python run_task.py --config edge_kd_2 --task_id 004_train_link11` | `output/edge_kd/` → 云侧 |
-| | ③ | 云侧 | `python run_task.py --config federated_cloud --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
-| | ③ | 边侧1 | `python run_task.py --config federated_edge_1 --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
-| | ③ | 边侧2 | `python run_task.py --config federated_edge_2 --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
-| **只知识蒸馏** | ① | 边侧1 | `python run_task.py --config edge_kd_1 --task_id 004_train_link11` | — |
-| | ① | 边侧2 | `python run_task.py --config edge_kd_2 --task_id 004_train_link11` | — |
-| **只联邦学习** | ① | 云侧 | `python run_task.py --config federated_cloud --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
-| | ① | 边侧1 | `python run_task.py --config federated_edge_1 --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
-| | ① | 边侧2 | `python run_task.py --config federated_edge_2 --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
+| **完整训练** | ① | 云侧 | `python run_task.py --step cloud_pretrain --task_id 004_train_link11` | `output/cloud_pretrain/` → 各边侧 |
+| | ② | 边侧1 | `python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 1` | `output/edge_kd/` → 云侧 |
+| | ② | 边侧2 | `python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 2` | `output/edge_kd/` → 云侧 |
+| | ③ | 云侧 | `python run_task.py --step federated_server --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
+| | ③ | 边侧1 | `python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1` | 持续同步 `output/federated_train/` |
+| | ③ | 边侧2 | `python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 2` | 持续同步 `output/federated_train/` |
+| **只知识蒸馏** | ① | 边侧1 | `python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 1` | — |
+| | ① | 边侧2 | `python run_task.py --step edge_kd --task_id 004_train_link11 --edge_id 2` | — |
+| **只联邦学习** | ① | 云侧 | `python run_task.py --step federated_server --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
+| | ① | 边侧1 | `python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 1` | 持续同步 `output/federated_train/` |
+| | ① | 边侧2 | `python run_task.py --step federated_edge --task_id 004_train_link11 --edge_id 2` | 持续同步 `output/federated_train/` |
 
 > **提示**：推理多机最后一步加 `--summary` 可查看全局耗时汇总并写入报告。`--mode` 单机模式自动开启，无需手动加。联邦学习阶段④的 3 条命令同时启动，通过文件轮询自动协调。
 

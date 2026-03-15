@@ -6,6 +6,7 @@ import os
 import sys
 import numpy as np
 import pickle
+import os.path
 
 # 添加项目根目录到路径
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -23,6 +24,54 @@ LABEL_MAPS = {
         ['E-2D_1', 'E-2D_2', 'P-3C_1', 'P-3C_2', 'P-8A_1', 'P-8A_2', 'P-8A_3'])},
     'radar': None,  # radar 用整数标签
 }
+
+
+def _load_mat_data(file_path, dataset_type):
+    try:
+        import h5py
+        try:
+            with h5py.File(file_path, 'r') as mat:
+                mat_data = {key: np.array(mat[key]) for key in mat.keys() if not key.startswith('__')}
+        except OSError:
+            mat_data = None
+    except ImportError:
+        mat_data = None
+
+    if mat_data is None:
+        try:
+            import scipy.io as scio
+        except ImportError as e:
+            raise ImportError("读取 .mat 需要安装 h5py 或 scipy") from e
+        mat_data = scio.loadmat(file_path)
+
+    if dataset_type == 'radar':
+        if 'X_batch' in mat_data and 'Y_batch' in mat_data:
+            X = np.array(mat_data['X_batch'])
+            y = np.array(mat_data['Y_batch']).flatten()
+        elif 'X' in mat_data and 'Y' in mat_data:
+            X = np.array(mat_data['X'])
+            y = np.array(mat_data['Y']).flatten()
+        else:
+            keys = list(mat_data.keys())
+            raise ValueError(f"Radar .mat 缺少字段 X/Y 或 X_batch/Y_batch, keys={keys}")
+
+        if X.ndim != 3:
+            raise ValueError(f"Radar .mat X 维度异常: shape={X.shape}")
+
+        if X.shape[0] == 2:
+            X = np.transpose(X, (2, 0, 1))
+        elif X.shape[1] == 2:
+            X = np.transpose(X, (0, 1, 2))
+        else:
+            raise ValueError(f"Radar .mat X 形状不符合预期(2,L,N)或(N,2,L): shape={X.shape}")
+
+        y = y.astype(np.int64)
+        if y.min() >= 1:
+            y = y - 1
+
+        return X, y
+
+    raise ValueError(f"暂不支持数据集 {dataset_type} 的 .mat 加载")
 
 
 def _parse_pkl_data(data, dataset_type):
@@ -61,10 +110,15 @@ def _parse_pkl_data(data, dataset_type):
         y_data = np.array(data['test']['y'])
         return X_data, y_data
 
-    # 格式 4: {'X':..., 'y':...}
-    if 'X' in data and 'y' in data:
+    # 格式 4: {'X':..., 'y':...} 或 {'X':..., 'Y':...}（部分数据生成脚本用大写 Y）
+    if 'X' in data and ('y' in data or 'Y' in data or 'labels' in data):
         X_data = np.array(data['X'])
-        y_data = np.array(data['y'])
+        if 'y' in data:
+            y_data = np.array(data['y'])
+        elif 'Y' in data:
+            y_data = np.array(data['Y'])
+        else:
+            y_data = np.array(data['labels'])
         return X_data, y_data
 
     # 格式 1/2: {key: signal_array} 字典格式
@@ -179,40 +233,53 @@ def device_load_callback(task_id):
     
     try:
         if os.path.isdir(data_path):
-            # ---- 目录模式：加载目录下所有 .pkl 文件 ----
-            pkl_files = sorted([
-                os.path.join(data_path, f) 
-                for f in os.listdir(data_path) if f.endswith('.pkl')
+            files = sorted([
+                os.path.join(data_path, f)
+                for f in os.listdir(data_path)
+                if f.lower().endswith('.pkl') or f.lower().endswith('.mat')
             ])
-            if not pkl_files:
-                error_msg = f"目录中没有 .pkl 文件: {data_path}"
+            if not files:
+                error_msg = f"目录中没有 .pkl 或 .mat 文件: {data_path}"
                 print(f"[错误] {error_msg}")
                 return {'status': 'error', 'message': error_msg}
-            
+
             if max_files is not None:
-                pkl_files = pkl_files[:max_files]
-            
-            print(f"[加载] 发现 {len(pkl_files)} 个 PKL 文件（目录模式）")
-            
+                files = files[:max_files]
+
+            print(f"[加载] 发现 {len(files)} 个文件（目录模式）")
+
             all_X = []
             all_y = []
-            for i, fpath in enumerate(pkl_files):
-                with open(fpath, 'rb') as f:
-                    data = pickle.load(f)
-                X_part, y_part = _parse_pkl_data(data, dataset_type)
-                all_X.append(X_part)
-                all_y.append(y_part)
-                if (i + 1) % 10 == 0 or i == len(pkl_files) - 1:
-                    print(f"[加载] 已加载 {i+1}/{len(pkl_files)} 个文件")
-            
+            for i, fpath in enumerate(files):
+                ext = os.path.splitext(fpath)[1].lower()
+                if ext == '.pkl':
+                    with open(fpath, 'rb') as f:
+                        data = pickle.load(f)
+                    X_part, y_part = _parse_pkl_data(data, dataset_type)
+                elif ext == '.mat':
+                    X_part, y_part = _load_mat_data(fpath, dataset_type)
+                else:
+                    continue
+
+                all_X.append(np.array(X_part))
+                all_y.append(np.array(y_part))
+                if (i + 1) % 10 == 0 or i == len(files) - 1:
+                    print(f"[加载] 已加载 {i+1}/{len(files)} 个文件")
+
             X_data = np.concatenate(all_X, axis=0)
             y_data = np.concatenate(all_y, axis=0)
         else:
             # ---- 单文件模式 ----
             print(f"[加载] 正在加载数据文件...")
-            with open(data_path, 'rb') as f:
-                data = pickle.load(f)
-            X_data, y_data = _parse_pkl_data(data, dataset_type)
+            ext = os.path.splitext(data_path)[1].lower()
+            if ext == '.pkl':
+                with open(data_path, 'rb') as f:
+                    data = pickle.load(f)
+                X_data, y_data = _parse_pkl_data(data, dataset_type)
+            elif ext == '.mat':
+                X_data, y_data = _load_mat_data(data_path, dataset_type)
+            else:
+                raise ValueError(f"不支持的文件格式: {ext}")
         
         # 限制样本数量（用于快速测试）
         if num_batches is not None:
@@ -233,8 +300,40 @@ def device_load_callback(task_id):
     output_dir = f"./tasks/{task_id}/output/device_load"
     os.makedirs(output_dir, exist_ok=True)
     
+    # ========== 针对radar数据集的智能压缩 ==========
+    task_id_lower = str(task_id).lower()
+    if dataset_type == 'radar' and isinstance(X_data, np.ndarray) and X_data.ndim >= 3:
+        length = X_data.shape[-1]
+        print(f"[Radar数据] 检测到radar数据集，样本长度={length}")
+
+        # 纯云推理：希望发给云侧的是 1000（由 500 重复得到）
+        if 'cloud_only' in task_id_lower:
+            if length == 500:
+                X_data_save = np.concatenate([X_data, X_data], axis=-1)
+                print(f"[Radar处理] 纯云推理任务：500→1000（重复拼接）")
+            else:
+                X_data_save = X_data
+                print(f"[Radar处理] 纯云推理任务：保持长度={length}")
+
+        # 纯边推理或协同推理：保持正常 500
+        elif 'edge_only' in task_id_lower or 'collab' in task_id_lower:
+            if length > 500:
+                X_data_save = X_data[..., :500]
+                print(f"[Radar处理] 边侧/协同任务：截断到500")
+            else:
+                X_data_save = X_data
+                print(f"[Radar处理] 边侧/协同任务：保持长度={length}")
+
+        # 其它任务（如训练）：保持原样
+        else:
+            X_data_save = X_data
+            print(f"[Radar处理] 其它任务：保持长度={length}")
+    else:
+        # 非 radar 或非预期 shape：保持原样
+        X_data_save = X_data
+
     output_data = {
-        'X': X_data,
+        'X': X_data_save,
         'y': y_data,
         'dataset_type': dataset_type,
         'batch_size': batch_size,

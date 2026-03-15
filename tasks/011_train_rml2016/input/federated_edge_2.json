@@ -3,10 +3,9 @@
     "_注释": "联邦学习 - 边侧2本地训练",
 
     "_注释_input_data": "联邦学习同步目录，边侧每轮从此目录轮询 global_model_round_*.pth",
-    "input_data": {
-        "sync_dir": "tasks/011_train_rml2016/output/federated_train",
-        "data_path": "dataset/splits/rml2016/edge_2_data.pkl"
-    },
+    "sync_dir": "tasks/011_train_rml2016/output/federated_train",
+    
+    "data_path": "dataset/splits/rml2016/edge_2_data.pkl",
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 2,

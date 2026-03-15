@@ -2,9 +2,7 @@
     "_部署模式": "单机/多机共用 | 阶段1 | 云侧机器运行",
 
     "_注释_input_data": "数据准备步骤（prepare_data_splits.py）的输出，作为本步骤的输入",
-    "input_data": {
-        "data_path": "dataset/splits/radar/cloud_data.pkl"
-    },
+    "data_path": "dataset/splits/radar/cloud_data.pkl",
 
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "radar",
@@ -19,7 +17,7 @@
     "epochs": 10,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 1024,
+    "batch_size": 64,
 
     "_注释_learning_rate": "初始学习率",
     "learning_rate": 0.001,
@@ -28,5 +26,5 @@
     "weight_decay": 1e-4,
 
     "_注释_device": "训练设备",
-    "device": "cuda:5"
+    "device": "cuda:0"
 }

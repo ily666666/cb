@@ -1,8 +1,8 @@
 """
 云侧任务回调
 支持两种模式：
-1. 协同推理模式：处理边侧发送的低置信度样本（input_data.source = "edge_infer"）
-2. 直接推理模式：处理端侧的全部数据（input_data.source = "device_load"）
+1. 协同推理模式：处理边侧发送的低置信度样本（input_data.parent_folder = "edge_infer"）
+2. 直接推理模式：处理端侧的全部数据（input_data.parent_folder = "device_load"）
 """
 import os
 import sys
@@ -211,7 +211,7 @@ def cloud_direct_infer_callback(task_id):
 
     # 3. 从 device_load 加载全部数据
     print(f"[加载] 从 device_load 加载全部数据...")
-    input_source = config['input_data']['source']
+    input_source = config['input_data']['parent_folder']
     input_file = config['input_data'].get('file_name', 'data_batch.pkl')
 
     try:
@@ -333,7 +333,7 @@ def cloud_infer_callback(task_id):
 
     # 3. 加载低置信度样本
     print(f"[加载] 从 edge_infer 加载低置信度样本...")
-    input_source = config['input_data']['source']
+    input_source = config['input_data']['parent_folder']
     input_file = config['input_data'].get('signals_file', 'low_conf_signals.pkl')
 
     try:

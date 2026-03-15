@@ -210,7 +210,7 @@ def main():
     Gr = 8
     T_sys = 290
     F = 3
-    num_samples_per_point = 6000
+    num_samples_per_point = 1000 
     pulse_width = 5e-6
     fs = 100e6
     repeat_factor = 1

@@ -4,9 +4,11 @@
 
     "_注释_input_data": "上一步（cloud_pretrain）的输出，作为本步骤的输入",
     "input_data": {
-        "teacher_model_path": "tasks/011_train_rml2016/output/cloud_pretrain/teacher_model.pth",
-        "data_path": "dataset/splits/rml2016/edge_1_data.pkl"
+        "file_name": "teacher_model.pth",
+        "parent_folder": "cloud_pretrain"
     },
+
+    "data_path": "dataset/splits/rml2016/edge_1_data.pkl",
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 1,

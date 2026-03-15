@@ -10,7 +10,7 @@
 
     "_注释_input_data":   "直接推理模式：source=device_load",
     "input_data": {
-        "source": "device_load",
+        "parent_folder": "device_load",
         "file_name": "data_batch.pkl"
     }
 }

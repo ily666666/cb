@@ -30,17 +30,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 数据集配置（绑定数据集类型、路径和类别数）
 DATASET_CONFIG = {
     'link11': {
-        'data_path': 'run/data/link11.pkl',
+        'data_path': 'E:/BaiduNet_Download/dataGen/link11_merged_data.pkl',
         'num_classes': 7,
         'description': 'Link11 - 7类雷达发射机识别'
     },
     'rml2016': {
-        'data_path': 'run/data/rml2016.pkl',
+        'data_path': 'E:/BaiduNet_Download/dataGen/rml2016_merged_data_10runs.pkl',
         'num_classes': 6,
         'description': 'RML2016 - 6类调制识别'
     },
     'radar': {
-        'data_path': 'run/data/radar.mat',
+        'data_path': 'E:/BaiduNet_Download/dataGen/radar_merged_data.mat',
         'num_classes': 7,
         'description': 'Radar - 7类雷达个体识别'
     }
@@ -80,7 +80,7 @@ def dirichlet_split_indices(labels, num_edges, alpha, seed=42):
 
 def load_and_split_data(data_path, dataset_type, num_edges, num_classes, 
                         partition_method='dirichlet', dirichlet_alpha=0.5, 
-                        cloud_ratio=0.3, seed=42):
+                        cloud_ratio=0.3, seed=42, radar_length=500):
     """
     加载并划分数据集
     
@@ -129,6 +129,14 @@ def load_and_split_data(data_path, dataset_type, num_edges, num_classes,
         val_y = full_val_dataset.Y_adjusted[full_val_dataset.indices]
         test_X = full_test_dataset.X[full_test_dataset.indices]
         test_y = full_test_dataset.Y_adjusted[full_test_dataset.indices]
+        
+        # 处理样本长度
+        if radar_length == 1000:
+            print(f"   ⚙️  将 Radar 样本长度从 500 拼接到 1000...")
+            train_X = np.concatenate([train_X, train_X], axis=-1)
+            val_X = np.concatenate([val_X, val_X], axis=-1)
+            test_X = np.concatenate([test_X, test_X], axis=-1)
+            print(f"   ✅ 拼接完成，新形状: {train_X.shape}")
     else:
         # Link11和RML2016使用标准属性名
         train_X = full_train_dataset.signals
@@ -312,7 +320,7 @@ def main():
     )
     
     parser.add_argument('--dataset_type', type=str, 
-                        default='radar',
+                        default='link11',
                         choices=['link11', 'rml2016', 'radar'], 
                         help='数据集类型（自动设置路径和类别数）')
     parser.add_argument('--data_path', type=str, 
@@ -331,6 +339,9 @@ def main():
                         help='随机种子')
     parser.add_argument('--output_dir', type=str, default='dataset/splits', 
                         help='输出目录')
+    parser.add_argument('--radar_length', type=int, default=1000, 
+                        choices=[500, 1000],
+                        help='Radar数据集样本长度（500=原始，1000=拼接）')
     
     args = parser.parse_args()
     
@@ -352,6 +363,8 @@ def main():
     print(f"  数据集描述: {dataset_config['description']}")
     print(f"  数据路径: {data_path}")
     print(f"  类别数量: {num_classes} (自动设置)")
+    if args.dataset_type == 'radar':
+        print(f"  Radar样本长度: {args.radar_length}")
     print(f"  边侧数量: {args.num_edges}")
     print(f"  划分方法: {args.partition_method}")
     print(f"  Dirichlet Alpha: {args.dirichlet_alpha}")
@@ -369,7 +382,8 @@ def main():
         partition_method=args.partition_method,
         dirichlet_alpha=args.dirichlet_alpha,
         cloud_ratio=args.cloud_ratio,
-        seed=args.seed
+        seed=args.seed,
+        radar_length=args.radar_length
     )
     
     # 保存划分后的数据

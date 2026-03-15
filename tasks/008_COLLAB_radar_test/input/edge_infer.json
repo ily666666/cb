@@ -1,6 +1,6 @@
 {
     "_注释_model_path":   "边侧模型权重文件路径(.pth)",
-    "model_path": "tasks/012_train_radar/output/federated_train/edge_1_model.pth",
+    "model_path": "edge_pth/radar/edge_1_model.pth",
 
     "_注释_model_type":   "模型类型名",
     "model_type": "real_resnet20_radar_h",
@@ -22,7 +22,7 @@
 
     "_注释_input_data":   "输入数据来源",
     "input_data": {
-        "source": "device_load",
+        "parent_folder": "device_load",
         "file_name": "data_batch.pkl"
     }
 }

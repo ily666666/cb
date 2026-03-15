@@ -227,7 +227,7 @@ def edge_infer_callback(task_id):
     
     # 3. 加载输入数据
     print(f"[加载] 从 device_load 加载数据...")
-    input_source = config['input_data']['source']
+    input_source = config['input_data']['parent_folder']
     input_file = config['input_data']['file_name']
     
     try:

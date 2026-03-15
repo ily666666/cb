@@ -15,11 +15,11 @@
     "batch_size": 32,
 
     "_注释_simulate_bandwidth_mbps": "模拟网络带宽(MB/s)。边侧→云侧=10，不填或null=不模拟",
-    "simulate_bandwidth_mbps": 10,
+    "simulate_bandwidth_mbps": 1,
 
     "_注释_input_data":   "协同模式下source=edge_infer，读取边侧筛选出的低置信度样本",
     "input_data": {
-        "source": "edge_infer",
+        "parent_folder": "edge_infer",
         "signals_file": "low_conf_signals.pkl"
     }
 }

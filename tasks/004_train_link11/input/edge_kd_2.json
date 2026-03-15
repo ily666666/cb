@@ -4,9 +4,11 @@
 
     "_注释_input_data": "上一步（cloud_pretrain）的输出，作为本步骤的输入",
     "input_data": {
-        "teacher_model_path": "tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth",
-        "data_path": "dataset/splits/link11/edge_2_data.pkl"
+        "parent_folder": "cloud_pretrain",
+        "file_name": "teacher_model.pth"
     },
+    
+    "data_path": "dataset/splits/link11/edge_2_data.pkl",
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 2,
@@ -33,11 +35,11 @@
     "temperature": 4.0,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 2048,
+    "batch_size": 64,
 
     "_注释_learning_rate": "学习率",
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7"
+    "device": "cuda:0"
 }

@@ -1,5 +1,5 @@
 {
-    "data_path": "dataset/rml2016",
+    "data_path": "E:/BaiduNet_Download/dataGen/rml2016_2500.pkl",
     "dataset_type": "rml2016",
     "batch_size": 32,
     "max_files": 10,
