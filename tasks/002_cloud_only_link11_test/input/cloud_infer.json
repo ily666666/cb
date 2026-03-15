@@ -1,5 +1,5 @@
 {
-    "model_path": "E:/1Experiments/project/run/cloud/pth/link11/teacher_model.pth",
+    "model_path": "/home/user/coderepository/cb/tasks/004_train_link11/output/cloud_pretrain/teacher_model.pth",
     "model_type": "complex_resnet50_link11_with_attention",
     "num_classes": 7,
     "device": "cuda:0",

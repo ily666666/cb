@@ -297,7 +297,7 @@ class Link11Simulator:
 def main():
     # 1. 核心参数设置
     samples_per_symbol = 8        # 每个符号的采样数
-    num_waypoints = 100000          # 每条航线的航点数
+    num_waypoints = 5000          # 每条航线的航点数
     aircraft_ids = list(aircraft_parameters.keys())  # 7个个体
     # 双接收机参数（经纬度+高度）
     receivers = {
@@ -401,7 +401,7 @@ def main():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output_dir = os.path.join(project_root, 'run', 'data')
     os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.join(output_dir, 'link11.pkl')
+    filename = os.path.join(output_dir, 'link11_5000.pkl')
     with open(filename, 'wb') as f:
         pickle.dump(data_dict, f, protocol=4)
     
