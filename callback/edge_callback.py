@@ -14,10 +14,11 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
+from config_refactor import get_dataset_from_task_id
 from utils_refactor import (
     load_json, save_json, load_pickle, save_pickle, save_numpy, 
     check_parameters, load_from_output, check_output_exists,
-    simulate_transfer
+    save_timing, simulate_transfer
 )
 from core.model_factory import create_model_by_type
 
@@ -144,7 +145,7 @@ def batch_inference_efficient(model, X_data, y_data, batch_size, device):
 
 
 @register_task
-def edge_infer_callback(task_id, config_prefix=''):
+def edge_infer_callback(task_id, **kwargs):
     """
     边侧推理回调
     
@@ -175,7 +176,8 @@ def edge_infer_callback(task_id, config_prefix=''):
     print(f"{'='*60}")
     
     # 1. 读取配置文件
-    config_path = f"./tasks/{task_id}/input/{config_prefix}edge_infer.json"
+    ds = get_dataset_from_task_id(task_id)
+    config_path = f"./tasks/{task_id}/input/{ds}_edge_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     
     result, config = check_parameters(config_path, param_list)
@@ -230,6 +232,7 @@ def edge_infer_callback(task_id, config_prefix=''):
     input_source = config['input_data']['parent_folder']
     input_file = config['input_data']['file_name']
     
+    t_data_load_start = time.time()
     try:
         input_data = load_from_output(task_id, input_source, input_file)
         X_data = input_data['X']
@@ -241,6 +244,8 @@ def edge_infer_callback(task_id, config_prefix=''):
         error_msg = f"加载输入数据失败: {str(e)}"
         print(f"[错误] {error_msg}")
         return {'status': 'error', 'message': error_msg}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
     
     # 3.5 模拟网络传输（设备→边侧）
     bandwidth = config.get('simulate_bandwidth_mbps', None)
@@ -337,13 +342,13 @@ def edge_infer_callback(task_id, config_prefix=''):
         print(f"[信息] 纯边侧模式，跳过低置信度筛选")
     
     # 保存计时信息到文件（供 run_task.py 读取）
-    timing_info = {
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
         'transfer_time': transfer_info['transfer_time'],
-        'model_load_time': round(t_model_load, 4),
-        'warmup_time': round(t_warmup, 4),
-        'inference_time': round(t_infer, 4),
-    }
-    save_json(os.path.join(output_dir, 'timing.json'), timing_info)
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→边侧 数据传输耗时（模拟带宽限速）'})
     
     print(f"[保存] 中间结果已保存到: {output_dir}")
     print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")

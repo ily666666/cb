@@ -15,9 +15,9 @@ from callback.train_callback import (
 
 
 @register_task
-def radar_cloud_pretrain_callback(task_id, **kwargs):
+def radar_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """radar 云侧预训练教师模型"""
-    return cloud_pretrain_callback(task_id, config_name='radar_cloud_pretrain', **kwargs)
+    return cloud_pretrain_callback(task_id, config_name=config_name or 'radar_cloud_pretrain', **kwargs)
 
 
 @register_task
@@ -48,15 +48,15 @@ def radar_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
 
 @register_task
-def radar_federated_train_callback(task_id, **kwargs):
+def radar_federated_train_callback(task_id, config_name=None, **kwargs):
     """radar 联邦学习训练"""
-    return federated_train_callback(task_id, config_name='radar_federated_train', **kwargs)
+    return federated_train_callback(task_id, config_name=config_name or 'radar_federated_train', **kwargs)
 
 
 @register_task
-def radar_federated_cloud_callback(task_id, **kwargs):
+def radar_federated_cloud_callback(task_id, config_name=None, **kwargs):
     """radar 联邦学习 - 云侧聚合"""
-    return federated_cloud_callback(task_id, config_name='radar_federated_cloud', **kwargs)
+    return federated_cloud_callback(task_id, config_name=config_name or 'radar_federated_cloud', **kwargs)
 
 
 @register_task

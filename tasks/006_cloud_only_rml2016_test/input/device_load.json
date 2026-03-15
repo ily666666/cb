@@ -1,7 +1,0 @@
-{
-    "data_path": "E:/BaiduNet_Download/dataGen/rml2016_500num_waypoints/",
-    "dataset_type": "rml2016",
-    "batch_size": 32,
-    "max_files": null,
-    "num_batches": null
-}

@@ -2,7 +2,7 @@
 # ============================================================
 # 云边端协同系统 — 单网卡网络限速脚本（tc 方案）
 # ============================================================
-# 固定限速：端↔边 100 MB/s (800Mbps)，边↔云 10 MB/s (80Mbps)
+# 固定限速：端↔边 100 MB/s (800Mbps)，边↔云 8 MB/s (64Mbps)
 #
 # 用法: sudo ./network_shaping.sh <角色> [网卡名]
 #   角色: cloud / edge / device / clear
@@ -31,13 +31,13 @@ DEVICE4_IP=192.168.1.34
 
 # ====== 固定带宽 ======
 DE_RATE="800mbit"   # 端↔边：100 MB/s = 800 Mbps
-EC_RATE="80mbit"    # 边↔云：10 MB/s  = 80 Mbps
+EC_RATE="64mbit"    # 边↔云：8 MB/s   = 64 Mbps
 
 if [ -z "$ROLE" ]; then
     echo "用法: sudo $0 <角色> [网卡名]"
     echo "  角色: cloud / edge / device / clear"
     echo ""
-    echo "固定限速: 端↔边 100 MB/s (800Mbps), 边↔云 10 MB/s (80Mbps)"
+    echo "固定限速: 端↔边 100 MB/s (800Mbps), 边↔云 8 MB/s (64Mbps)"
     echo ""
     echo "示例:"
     echo "  sudo $0 cloud"
@@ -56,7 +56,7 @@ if [ "$ROLE" = "clear" ]; then
 fi
 
 echo "============================================================"
-echo " 固定限速: 端↔边 100 MB/s (800Mbps), 边↔云 10 MB/s (80Mbps)"
+echo " 固定限速: 端↔边 100 MB/s (800Mbps), 边↔云 8 MB/s (64Mbps)"
 echo " 网卡: $IFACE"
 echo "============================================================"
 
@@ -70,16 +70,16 @@ if [ "$ROLE" = "device" ]; then
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $EDGE1_IP/32 flowid 1:10
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $EDGE2_IP/32 flowid 1:10
 
-    # === 端→云：80Mbps (10 MB/s) ===
+    # === 端→云：64Mbps (8 MB/s) ===
     tc class add dev $IFACE parent 1: classid 1:20 htb rate $EC_RATE ceil $EC_RATE
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $CLOUD_IP/32 flowid 1:20
 
     echo "[端节点] 限速已设置:"
     echo "  → 边侧 ($EDGE1_IP, $EDGE2_IP): 100 MB/s (800Mbps)"
-    echo "  → 云侧 ($CLOUD_IP): 10 MB/s (80Mbps)"
+    echo "  → 云侧 ($CLOUD_IP): 8 MB/s (64Mbps)"
 
 elif [ "$ROLE" = "edge" ]; then
-    # === 边→云：80Mbps (10 MB/s) ===
+    # === 边→云：64Mbps (8 MB/s) ===
     tc class add dev $IFACE parent 1: classid 1:10 htb rate $EC_RATE ceil $EC_RATE
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $CLOUD_IP/32 flowid 1:10
 
@@ -91,17 +91,17 @@ elif [ "$ROLE" = "edge" ]; then
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $DEVICE4_IP/32 flowid 1:20
 
     echo "[边节点] 限速已设置:"
-    echo "  → 云侧 ($CLOUD_IP): 10 MB/s (80Mbps)"
+    echo "  → 云侧 ($CLOUD_IP): 8 MB/s (64Mbps)"
     echo "  → 端侧: 100 MB/s (800Mbps)"
 
 elif [ "$ROLE" = "cloud" ]; then
-    # === 云→边：80Mbps (10 MB/s) ===
+    # === 云→边：64Mbps (8 MB/s) ===
     tc class add dev $IFACE parent 1: classid 1:10 htb rate $EC_RATE ceil $EC_RATE
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $EDGE1_IP/32 flowid 1:10
     tc filter add dev $IFACE parent 1: protocol ip prio 1 u32 match ip dst $EDGE2_IP/32 flowid 1:10
 
     echo "[云节点] 限速已设置:"
-    echo "  → 边侧 ($EDGE1_IP, $EDGE2_IP): 10 MB/s (80Mbps)"
+    echo "  → 边侧 ($EDGE1_IP, $EDGE2_IP): 8 MB/s (64Mbps)"
 else
     echo "错误: 未知角色 '$ROLE'，可选 cloud / edge / device / clear"
     exit 1

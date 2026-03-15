@@ -65,7 +65,7 @@ iperf3 -c 192.168.1.102 -t 10
 
 ---
 
-### 第二步：在 VM-A 上设置 tc 限速到 80Mbps (10MB/s)
+### 第二步：在 VM-A 上设置 tc 限速到 64Mbps (8MB/s)
 
 ```bash
 # 替换 ens33 为你实际的网卡名
@@ -74,9 +74,9 @@ IFACE=ens33
 # 清除旧规则
 sudo tc qdisc del dev $IFACE root 2>/dev/null
 
-# 设置限速 80Mbps（= 10 MB/s）
+# 设置限速 64Mbps（= 8 MB/s）
 sudo tc qdisc add dev $IFACE root handle 1: htb default 10
-sudo tc class add dev $IFACE parent 1: classid 1:10 htb rate 80mbit ceil 80mbit
+sudo tc class add dev $IFACE parent 1: classid 1:10 htb rate 64mbit ceil 64mbit
 ```
 
 **确认规则已生效：**
@@ -90,7 +90,7 @@ tc class show dev $IFACE
 
 ```
 qdisc htb 1: root ... default 0x10
-class htb 1:10 root rate 80Mbit ceil 80Mbit ...
+class htb 1:10 root rate 64Mbit ceil 64Mbit ...
 ```
 
 ---
@@ -113,10 +113,10 @@ iperf3 -c 192.168.1.102 -t 10
 
 ```
 [ ID] Interval           Transfer     Bitrate
-[  5]   0.00-10.00  sec  95.2 MBytes  79.8 Mbits/sec    sender
+[  5]   0.00-10.00  sec  76.3 MBytes  64.0 Mbits/sec    sender
 ```
 
-> 看到 Bitrate 从 ~940Mbps 降到 **~80Mbps**，说明限速生效。
+> 看到 Bitrate 从 ~940Mbps 降到 **~64Mbps**，说明限速生效。
 
 ---
 
@@ -188,11 +188,11 @@ tc qdisc del dev $IFACE root 2>/dev/null
 iperf3 -c $SERVER_IP -t 5
 echo ""
 
-# --- 测试 2: 限速 80Mbps (10 MB/s) ---
-echo "====== 测试 2: 限速 80Mbps (10 MB/s) ======"
+# --- 测试 2: 限速 64Mbps (8 MB/s) ---
+echo "====== 测试 2: 限速 64Mbps (8 MB/s) ======"
 tc qdisc del dev $IFACE root 2>/dev/null
 tc qdisc add dev $IFACE root handle 1: htb default 10
-tc class add dev $IFACE parent 1: classid 1:10 htb rate 80mbit ceil 80mbit
+tc class add dev $IFACE parent 1: classid 1:10 htb rate 64mbit ceil 64mbit
 echo "规则:"
 tc class show dev $IFACE
 echo ""
@@ -228,7 +228,7 @@ echo "============================================"
 | 测试 | tc 设置 | 预期 iperf3 结果 |
 |------|--------|-----------------|
 | 测试 1 | 不限速 | ~940 Mbps |
-| 测试 2 | 80 Mbps | **~80 Mbps (10 MB/s)** |
+| 测试 2 | 64 Mbps | **~64 Mbps (8 MB/s)** |
 | 测试 3 | 800 Mbps | **~800 Mbps (100 MB/s)** |
 
 如果三次结果呈现明显的阶梯差异，说明 tc 限速完全生效。
@@ -252,4 +252,4 @@ sudo modprobe sch_htb
 
 ### Q: VMware/VirtualBox 虚拟网卡速率本身就很低
 
-虚拟机网络性能受宿主机和虚拟化方式影响，基线可能只有 200-500Mbps。只要限速到 80Mbps 后明显低于基线，就说明 tc 生效。
+虚拟机网络性能受宿主机和虚拟化方式影响，基线可能只有 200-500Mbps。只要限速到 64Mbps 后明显低于基线，就说明 tc 生效。

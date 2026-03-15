@@ -4,6 +4,7 @@
 """
 import os
 import sys
+import time
 import numpy as np
 import pickle
 import os.path
@@ -12,7 +13,8 @@ import os.path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
-from utils_refactor import load_json, save_pickle, check_parameters
+from config_refactor import get_dataset_from_task_id
+from utils_refactor import load_json, save_pickle, check_parameters, save_timing
 
 
 # ================================================================
@@ -176,7 +178,7 @@ def _parse_pkl_data(data, dataset_type):
 
 
 @register_task
-def device_load_callback(task_id, config_prefix=''):
+def device_load_callback(task_id, **kwargs):
     """
     端侧数据加载回调
     
@@ -200,7 +202,8 @@ def device_load_callback(task_id, config_prefix=''):
     print(f"{'='*60}")
     
     # 1. 读取配置文件
-    config_path = f"./tasks/{task_id}/input/{config_prefix}device_load.json"
+    ds = get_dataset_from_task_id(task_id)
+    config_path = f"./tasks/{task_id}/input/{ds}_device_load.json"
     param_list = ['data_path', 'dataset_type', 'batch_size']
     
     result, config = check_parameters(config_path, param_list)
@@ -231,6 +234,7 @@ def device_load_callback(task_id, config_prefix=''):
     # 3. 加载数据（支持单文件或目录）
     max_files = config.get('max_files', None)  # 限制加载的文件数（用于快速测试）
     
+    t_load_start = time.time()
     try:
         if os.path.isdir(data_path):
             files = sorted([
@@ -296,6 +300,9 @@ def device_load_callback(task_id, config_prefix=''):
         print(f"[错误] {error_msg}")
         return {'status': 'error', 'message': error_msg}
     
+    t_data_load = time.time() - t_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+    
     # 4. 保存到output目录
     output_dir = f"./tasks/{task_id}/output/device_load"
     os.makedirs(output_dir, exist_ok=True)
@@ -343,6 +350,9 @@ def device_load_callback(task_id, config_prefix=''):
     save_pickle(output_path, output_data)
     
     print(f"[保存] 数据已保存到: {output_path}")
+    
+    # 保存计时信息到文件（供 run_task.py 读取）
+    save_timing(output_dir, {'data_load_time': t_data_load})
     
     # 5. 返回统计信息
     result_info = {

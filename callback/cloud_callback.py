@@ -16,10 +16,11 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
+from config_refactor import get_dataset_from_task_id
 from utils_refactor import (
     load_json, save_json, load_pickle, save_numpy, save_pickle,
     check_parameters, load_from_output, check_output_exists,
-    simulate_transfer
+    save_timing, simulate_transfer
 )
 from core.model_factory import create_model_by_type
 
@@ -171,7 +172,7 @@ def _generate_report(report_path, title, sections):
 # 端→云 直接推理
 # ================================================================
 @register_task
-def cloud_direct_infer_callback(task_id, config_prefix=''):
+def cloud_direct_infer_callback(task_id, **kwargs):
     """
     端→云 直接推理回调
 
@@ -188,7 +189,8 @@ def cloud_direct_infer_callback(task_id, config_prefix=''):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    config_path = f"./tasks/{task_id}/input/{config_prefix}cloud_infer.json"
+    ds = get_dataset_from_task_id(task_id)
+    config_path = f"./tasks/{task_id}/input/{ds}_cloud_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     result, config = check_parameters(config_path, param_list)
 
@@ -214,6 +216,7 @@ def cloud_direct_infer_callback(task_id, config_prefix=''):
     input_source = config['input_data']['parent_folder']
     input_file = config['input_data'].get('file_name', 'data_batch.pkl')
 
+    t_data_load_start = time.time()
     try:
         input_data = load_from_output(task_id, input_source, input_file)
         X_data = input_data['X']
@@ -222,6 +225,8 @@ def cloud_direct_infer_callback(task_id, config_prefix=''):
         print(f"[加载] 成功加载 {len(X_data)} 个样本")
     except Exception as e:
         return {'status': 'error', 'message': f"加载数据失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
 
     # 3.5 模拟网络传输（设备/边侧→云侧）
     bandwidth = config.get('simulate_bandwidth_mbps', None)
@@ -255,13 +260,13 @@ def cloud_direct_infer_callback(task_id, config_prefix=''):
     save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), corrects)
 
     # 保存计时信息到文件
-    timing_info = {
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
         'transfer_time': transfer_info['transfer_time'],
-        'model_load_time': round(t_model_load, 4),
-        'warmup_time': round(t_warmup, 4),
-        'inference_time': round(t_infer, 4),
-    }
-    save_json(os.path.join(output_dir, 'timing.json'), timing_info)
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→云侧 数据传输耗时（模拟带宽限速）'})
 
     # 7. 生成报告
     result_dir = f"./tasks/{task_id}/result/cloud_direct_infer"
@@ -295,7 +300,7 @@ def cloud_direct_infer_callback(task_id, config_prefix=''):
 # 端→边→云 协同推理（云侧部分）
 # ================================================================
 @register_task
-def cloud_infer_callback(task_id, config_prefix=''):
+def cloud_infer_callback(task_id, **kwargs):
     """
     端→边→云 协同推理回调（云侧部分）
 
@@ -310,7 +315,8 @@ def cloud_infer_callback(task_id, config_prefix=''):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    config_path = f"./tasks/{task_id}/input/{config_prefix}cloud_infer.json"
+    ds = get_dataset_from_task_id(task_id)
+    config_path = f"./tasks/{task_id}/input/{ds}_cloud_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     result, config = check_parameters(config_path, param_list)
 
@@ -336,6 +342,7 @@ def cloud_infer_callback(task_id, config_prefix=''):
     input_source = config['input_data']['parent_folder']
     input_file = config['input_data'].get('signals_file', 'low_conf_signals.pkl')
 
+    t_data_load_start = time.time()
     try:
         low_conf_data = load_from_output(task_id, input_source, input_file)
         low_conf_X = low_conf_data['X']
@@ -351,6 +358,8 @@ def cloud_infer_callback(task_id, config_prefix=''):
             return {'status': 'skipped', 'cloud_samples': 0, 'message': '没有低置信度样本'}
     except Exception as e:
         return {'status': 'error', 'message': f"加载低置信度样本失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
 
     # 3.5 模拟网络传输（边侧→云侧，只传低置信度样本）
     bandwidth = config.get('simulate_bandwidth_mbps', None)
@@ -396,13 +405,13 @@ def cloud_infer_callback(task_id, config_prefix=''):
     save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), cloud_corrects)
 
     # 保存计时信息到文件
-    timing_info = {
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
         'transfer_time': transfer_info['transfer_time'],
-        'model_load_time': round(t_model_load, 4),
-        'warmup_time': round(t_warmup, 4),
-        'inference_time': round(t_infer, 4),
-    }
-    save_json(os.path.join(output_dir, 'timing.json'), timing_info)
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '边侧→云侧 低置信度样本传输耗时（模拟带宽限速）'})
 
     # 8. 生成云侧报告
     result_dir = f"./tasks/{task_id}/result/cloud_infer"

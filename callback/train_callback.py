@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
+from config_refactor import get_dataset_from_task_id
 from utils_refactor import (
     load_json, load_pickle, save_pickle, save_numpy,
     check_parameters, load_from_output, check_output_exists
@@ -236,7 +237,8 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    config_name = config_name or 'cloud_pretrain'
+    ds = get_dataset_from_task_id(task_id)
+    config_name = config_name or f'{ds}_cloud_pretrain'
     config_path = f"./tasks/{task_id}/input/{config_name}.json"
     param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
     result, config = check_parameters(config_path, param_list)
@@ -491,6 +493,7 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
 def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """
     知识蒸馏统一入口 - 根据 config_name 或 edge_id 路由到具体的边侧回调
+    edge_id=None 时为单机模式，处理所有边
     """
     # 从 config_name 解析 edge_id
     if config_name and '_' in config_name:
@@ -504,7 +507,8 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
     elif edge_id == 2:
         return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     else:
-        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+        # edge_id=None → 单机模式，edge_kd_1_callback 内部会处理所有边
+        return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
 
 
 @register_task
@@ -519,17 +523,18 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
     配置: input/edge_kd.json 或 input/edge_kd_{N}.json
     运行:
-      单机: python run_task.py --task_id xxx --config edge_kd
-      分布式: python run_task.py --task_id xxx --config edge_kd_1
+      单机: python run_task.py --task_id xxx --config link11_edge_kd
+      分布式: python run_task.py --task_id xxx --config link11_edge_kd_1
     """
+    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
     if config_name:
         config_path = f"./tasks/{task_id}/input/{config_name}.json"
     elif edge_id is not None:
-        edge_config = f"./tasks/{task_id}/input/edge_kd_{edge_id}.json"
-        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/edge_kd.json"
+        edge_config = f"./tasks/{task_id}/input/{ds}_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/{ds}_edge_kd.json"
     else:
-        config_path = f"./tasks/{task_id}/input/edge_kd.json"
+        config_path = f"./tasks/{task_id}/input/{ds}_edge_kd.json"
 
     param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
     result, config = check_parameters(config_path, param_list)
@@ -717,17 +722,18 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
     配置: input/edge_kd.json 或 input/edge_kd_{N}.json
     运行:
-      单机: python run_task.py --task_id xxx --config edge_kd
-      分布式: python run_task.py --task_id xxx --config edge_kd_1
+      单机: python run_task.py --task_id xxx --config link11_edge_kd
+      分布式: python run_task.py --task_id xxx --config link11_edge_kd_1
     """
+    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
     if config_name:
         config_path = f"./tasks/{task_id}/input/{config_name}.json"
     elif edge_id is not None:
-        edge_config = f"./tasks/{task_id}/input/edge_kd_{edge_id}.json"
-        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/edge_kd.json"
+        edge_config = f"./tasks/{task_id}/input/{ds}_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/{ds}_edge_kd.json"
     else:
-        config_path = f"./tasks/{task_id}/input/edge_kd.json"
+        config_path = f"./tasks/{task_id}/input/{ds}_edge_kd.json"
 
     param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
     result, config = check_parameters(config_path, param_list)
@@ -930,7 +936,8 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     print(f"[联邦学习] 开始训练")
     print(f"{'='*60}")
 
-    config_name_used = config_name or 'federated_train'
+    ds = get_dataset_from_task_id(task_id)
+    config_name_used = config_name or f'{ds}_federated_train'
     config_path = f"./tasks/{task_id}/input/{config_name_used}.json"
     param_list = ['dataset_type', 'edge_model_type', 'num_classes',
                   'num_rounds', 'local_epochs']
@@ -1159,12 +1166,13 @@ def _wait_for_file(path, timeout=1800, interval=5):
 
 def _load_federated_config(task_id, config_name=None):
     """加载联邦学习配置，支持按 config_name 指定不同配置文件"""
+    ds = get_dataset_from_task_id(task_id)
     if config_name:
         config_path = f"./tasks/{task_id}/input/{config_name}.json"
         if not os.path.exists(config_path):
-            config_path = f"./tasks/{task_id}/input/federated_train.json"
+            config_path = f"./tasks/{task_id}/input/{ds}_federated_train.json"
     else:
-        config_path = f"./tasks/{task_id}/input/federated_train.json"
+        config_path = f"./tasks/{task_id}/input/{ds}_federated_train.json"
     param_list = ['dataset_type', 'edge_model_type', 'num_classes', 'num_rounds']
     result, config = check_parameters(config_path, param_list)
     if 'error' in result:
@@ -1192,7 +1200,8 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     print(f"[联邦学习-云侧] 聚合服务启动")
     print(f"{'='*60}")
 
-    config_name = config_name or 'federated_cloud'
+    ds = get_dataset_from_task_id(task_id)
+    config_name = config_name or f'{ds}_federated_cloud'
     config = _load_federated_config(task_id, config_name)
 
     dataset_type = config['dataset_type']
@@ -1383,11 +1392,12 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
     配置: input/federated_edge_{N}.json
     运行: python run_task.py --task_id xxx --config federated_edge_1
     """
+    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
     if config_name:
         config_name_resolved = config_name
     elif edge_id is not None:
-        edge_config = f"federated_edge_{edge_id}"
+        edge_config = f"{ds}_federated_edge_{edge_id}"
         if os.path.exists(f"./tasks/{task_id}/input/{edge_config}.json"):
             config_name_resolved = edge_config
         else:
@@ -1521,11 +1531,12 @@ def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
     配置: input/federated_edge_{N}.json
     运行: python run_task.py --task_id xxx --config federated_edge_1
     """
+    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
     if config_name:
         config_name_resolved = config_name
     elif edge_id is not None:
-        edge_config = f"federated_edge_{edge_id}"
+        edge_config = f"{ds}_federated_edge_{edge_id}"
         if os.path.exists(f"./tasks/{task_id}/input/{edge_config}.json"):
             config_name_resolved = edge_config
         else:

@@ -70,7 +70,8 @@ def collect_all_timings(task_id):
 
     Returns:
         dict: {
-            'steps': { step_name: {transfer_time, model_load_time, warmup_time, inference_time} },
+            'steps': { step_name: {data_load_time, transfer_time, model_load_time, warmup_time, inference_time} },
+            'total_data_load': float,
             'total_inference': float,
             'total_overhead': float,   # model_load + warmup
             'total_transfer': float,
@@ -78,12 +79,13 @@ def collect_all_timings(task_id):
     """
     output_root = f"./tasks/{task_id}/output"
     steps = {}
+    total_data_load = 0.0
     total_inference = 0.0
     total_overhead = 0.0
     total_transfer = 0.0
 
     if not os.path.exists(output_root):
-        return {'steps': steps, 'total_inference': 0, 'total_overhead': 0, 'total_transfer': 0}
+        return {'steps': steps, 'total_data_load': 0, 'total_inference': 0, 'total_overhead': 0, 'total_transfer': 0}
 
     for step_dir in sorted(os.listdir(output_root)):
         timing_path = os.path.join(output_root, step_dir, 'timing.json')
@@ -91,16 +93,19 @@ def collect_all_timings(task_id):
             try:
                 with open(timing_path, 'r', encoding='utf-8') as f:
                     timing = json.load(f)
+                t_data = timing.get('data_load_time', 0)
                 t_trans = timing.get('transfer_time', 0)
                 t_load = timing.get('model_load_time', 0)
                 t_warm = timing.get('warmup_time', 0)
                 t_inf = timing.get('inference_time', 0)
                 steps[step_dir] = {
+                    'data_load_time': t_data,
                     'transfer_time': t_trans,
                     'model_load_time': t_load,
                     'warmup_time': t_warm,
                     'inference_time': t_inf,
                 }
+                total_data_load += t_data
                 total_inference += t_inf
                 total_overhead += t_load + t_warm
                 total_transfer += t_trans
@@ -109,6 +114,7 @@ def collect_all_timings(task_id):
 
     return {
         'steps': steps,
+        'total_data_load': total_data_load,
         'total_inference': total_inference,
         'total_overhead': total_overhead,
         'total_transfer': total_transfer,
@@ -128,6 +134,7 @@ def format_timing_summary(timing_data, total_time=None):
     """
     lines = []
     steps = timing_data['steps']
+    total_dl = timing_data.get('total_data_load', 0)
     total_inf = timing_data['total_inference']
     total_oh = timing_data['total_overhead']
     total_trans = timing_data['total_transfer']
@@ -137,13 +144,21 @@ def format_timing_summary(timing_data, total_time=None):
 
     lines.append("各步骤耗时明细:")
     for step_name, t in steps.items():
+        parts = []
+        if t.get('data_load_time', 0) > 0:
+            parts.append(f"数据加载: {t['data_load_time']:.2f}s")
+        if t['inference_time'] > 0:
+            parts.append(f"纯推理: {t['inference_time']:.2f}s")
         overhead = t['model_load_time'] + t['warmup_time']
-        parts = [f"纯推理: {t['inference_time']:.2f}s", f"加载+热身: {overhead:.2f}s"]
+        if overhead > 0:
+            parts.append(f"加载+热身: {overhead:.2f}s")
         if t['transfer_time'] > 0:
             parts.append(f"传输: {t['transfer_time']:.2f}s")
         lines.append(f"  {step_name}: {' | '.join(parts)}")
 
     lines.append("")
+    if total_dl > 0:
+        lines.append(f"数据加载耗时合计: {total_dl:.2f}s")
     lines.append(f"纯推理耗时合计: {total_inf:.2f}s")
     lines.append(f"开销合计(加载+热身): {total_oh:.2f}s")
     if total_trans > 0:
@@ -152,9 +167,12 @@ def format_timing_summary(timing_data, total_time=None):
     lines.append(f"推理+传输: {total_inf + total_trans:.2f}s")
 
     if total_time is not None:
-        net_time = total_time - total_oh
         lines.append(f"本次运行总耗时: {total_time:.2f}s")
-        lines.append(f"去除开销后: {net_time:.2f}s  (总耗时 {total_time:.2f}s - 加载热身 {total_oh:.2f}s)")
+        net_time = total_time - total_oh
+        if net_time >= 0:
+            lines.append(f"去除开销后: {net_time:.2f}s  (总耗时 {total_time:.2f}s - 加载热身 {total_oh:.2f}s)")
+        else:
+            lines.append(f"去除开销后: N/A  (部分步骤使用了缓存结果，本次运行未产生全部开销)")
 
     return "\n".join(lines)
 

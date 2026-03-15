@@ -41,11 +41,11 @@ BASELINE=$(iperf3 -c $SERVER_IP -t 3 2>&1 | grep sender | awk '{print $7, $8}')
 echo "基线带宽: $BASELINE"
 echo ""
 
-# ------ 测试 2: 限速 80Mbps (10 MB/s) ------
-echo "====== 测试 2/3: 限速 80Mbps (= 10 MB/s) ======"
+# ------ 测试 2: 限速 64Mbps (8 MB/s) ------
+echo "====== 测试 2/3: 限速 64Mbps (= 8 MB/s) ======"
 tc qdisc del dev $IFACE root 2>/dev/null || true
 tc qdisc add dev $IFACE root handle 1: htb default 10
-tc class add dev $IFACE parent 1: classid 1:10 htb rate 80mbit ceil 80mbit
+tc class add dev $IFACE parent 1: classid 1:10 htb rate 64mbit ceil 64mbit
 sleep 1
 iperf3 -c $SERVER_IP -t 5 2>&1 | tail -3
 echo ""
@@ -67,7 +67,7 @@ echo " 测试完成！"
 echo ""
 echo " 预期结果:"
 echo "   测试1 不限速:  ~940 Mbps"
-echo "   测试2 限80M:   ~80 Mbps  (10 MB/s)"
+echo "   测试2 限64M:   ~64 Mbps  (8 MB/s)"
 echo "   测试3 限800M:  ~800 Mbps (100 MB/s)"
 echo ""
 echo " 如果三次差异明显 → tc 限速生效"

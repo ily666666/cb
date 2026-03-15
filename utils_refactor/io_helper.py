@@ -135,6 +135,41 @@ def check_output_exists(task_id, task_name, file_name):
     return os.path.exists(file_path)
 
 
+TIMING_FIELD_DESCRIPTIONS = {
+    'data_load_time': '数据从硬盘加载到内存的耗时',
+    'transfer_time': '网络传输耗时（模拟带宽限速）',
+    'model_load_time': '模型权重加载耗时',
+    'warmup_time': 'CUDA 热身耗时（首批推理，不计入纯推理时间）',
+    'inference_time': '纯推理耗时（不含加载和热身）',
+}
+
+
+def save_timing(output_dir, timings, field_overrides=None):
+    """
+    保存 timing.json 到指定目录
+
+    Args:
+        output_dir: 输出目录路径
+        timings: dict, 要记录的耗时字段，如 {'inference_time': 1.23, 'model_load_time': 0.5}
+        field_overrides: dict, 可选，覆盖个别字段的说明文案，如 {'transfer_time': '边侧→云侧 传输耗时'}
+    """
+    fields_desc = {}
+    for key in timings:
+        desc = TIMING_FIELD_DESCRIPTIONS.get(key, key)
+        fields_desc[key] = desc
+    if field_overrides:
+        fields_desc.update(field_overrides)
+
+    timing_info = {
+        '_unit': '秒(s)',
+        '_fields': fields_desc,
+    }
+    for key, value in timings.items():
+        timing_info[key] = round(value, 4)
+
+    save_json(os.path.join(output_dir, 'timing.json'), timing_info)
+
+
 def simulate_transfer(file_path, bandwidth_mbps):
     """
     模拟网络传输延迟

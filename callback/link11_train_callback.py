@@ -15,9 +15,9 @@ from callback.train_callback import (
 
 
 @register_task
-def link11_cloud_pretrain_callback(task_id, **kwargs):
+def link11_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """link11 云侧预训练教师模型"""
-    return cloud_pretrain_callback(task_id, config_name='link11_cloud_pretrain', **kwargs)
+    return cloud_pretrain_callback(task_id, config_name=config_name or 'link11_cloud_pretrain', **kwargs)
 
 
 @register_task
@@ -48,15 +48,15 @@ def link11_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
 
 
 @register_task
-def link11_federated_train_callback(task_id, **kwargs):
+def link11_federated_train_callback(task_id, config_name=None, **kwargs):
     """link11 联邦学习训练"""
-    return federated_train_callback(task_id, config_name='link11_federated_train', **kwargs)
+    return federated_train_callback(task_id, config_name=config_name or 'link11_federated_train', **kwargs)
 
 
 @register_task
-def link11_federated_cloud_callback(task_id, **kwargs):
+def link11_federated_cloud_callback(task_id, config_name=None, **kwargs):
     """link11 联邦学习 - 云侧聚合"""
-    return federated_cloud_callback(task_id, config_name='link11_federated_cloud', **kwargs)
+    return federated_cloud_callback(task_id, config_name=config_name or 'link11_federated_cloud', **kwargs)
 
 
 @register_task

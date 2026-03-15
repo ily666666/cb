@@ -94,6 +94,17 @@ PIPELINE_MODES = {
 # 兼容旧名称
 INFERENCE_MODES = PIPELINE_MODES
 
+KNOWN_DATASETS = list(DATASET_CONFIG.keys())   # ['link11', 'rml2016', 'radar']
+
+
+def get_dataset_from_task_id(task_id):
+    """从 task_id 提取数据集名称，如 '001_COLLAB_link11_test' → 'link11'"""
+    for ds in KNOWN_DATASETS:
+        if ds in task_id:
+            return ds
+    raise ValueError(f"无法从 task_id '{task_id}' 识别数据集，支持: {KNOWN_DATASETS}")
+
+
 # ==================== 辅助函数 ====================
 def get_task_path(task_id, path_type='root'):
     """
