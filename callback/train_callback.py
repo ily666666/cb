@@ -930,7 +930,8 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     print(f"[联邦学习] 开始训练")
     print(f"{'='*60}")
 
-    config_path = f"./tasks/{task_id}/input/federated_train.json"
+    config_name_used = config_name or 'federated_train'
+    config_path = f"./tasks/{task_id}/input/{config_name_used}.json"
     param_list = ['dataset_type', 'edge_model_type', 'num_classes',
                   'num_rounds', 'local_epochs']
     result, config = check_parameters(config_path, param_list)

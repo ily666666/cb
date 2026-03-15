@@ -171,7 +171,7 @@ def _generate_report(report_path, title, sections):
 # 端→云 直接推理
 # ================================================================
 @register_task
-def cloud_direct_infer_callback(task_id):
+def cloud_direct_infer_callback(task_id, config_prefix=''):
     """
     端→云 直接推理回调
 
@@ -188,7 +188,7 @@ def cloud_direct_infer_callback(task_id):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    config_path = f"./tasks/{task_id}/input/cloud_infer.json"
+    config_path = f"./tasks/{task_id}/input/{config_prefix}cloud_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     result, config = check_parameters(config_path, param_list)
 
@@ -295,7 +295,7 @@ def cloud_direct_infer_callback(task_id):
 # 端→边→云 协同推理（云侧部分）
 # ================================================================
 @register_task
-def cloud_infer_callback(task_id):
+def cloud_infer_callback(task_id, config_prefix=''):
     """
     端→边→云 协同推理回调（云侧部分）
 
@@ -310,7 +310,7 @@ def cloud_infer_callback(task_id):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    config_path = f"./tasks/{task_id}/input/cloud_infer.json"
+    config_path = f"./tasks/{task_id}/input/{config_prefix}cloud_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     result, config = check_parameters(config_path, param_list)
 

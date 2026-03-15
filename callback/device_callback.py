@@ -176,7 +176,7 @@ def _parse_pkl_data(data, dataset_type):
 
 
 @register_task
-def device_load_callback(task_id):
+def device_load_callback(task_id, config_prefix=''):
     """
     端侧数据加载回调
     
@@ -200,7 +200,7 @@ def device_load_callback(task_id):
     print(f"{'='*60}")
     
     # 1. 读取配置文件
-    config_path = f"./tasks/{task_id}/input/device_load.json"
+    config_path = f"./tasks/{task_id}/input/{config_prefix}device_load.json"
     param_list = ['data_path', 'dataset_type', 'batch_size']
     
     result, config = check_parameters(config_path, param_list)

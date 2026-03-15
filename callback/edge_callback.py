@@ -144,7 +144,7 @@ def batch_inference_efficient(model, X_data, y_data, batch_size, device):
 
 
 @register_task
-def edge_infer_callback(task_id):
+def edge_infer_callback(task_id, config_prefix=''):
     """
     边侧推理回调
     
@@ -175,7 +175,7 @@ def edge_infer_callback(task_id):
     print(f"{'='*60}")
     
     # 1. 读取配置文件
-    config_path = f"./tasks/{task_id}/input/edge_infer.json"
+    config_path = f"./tasks/{task_id}/input/{config_prefix}edge_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     
     result, config = check_parameters(config_path, param_list)
