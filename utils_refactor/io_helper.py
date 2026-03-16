@@ -137,6 +137,8 @@ def check_output_exists(task_id, task_name, file_name):
 
 TIMING_FIELD_DESCRIPTIONS = {
     'data_load_time': '数据从硬盘加载到内存的耗时',
+    'preprocess_time': '数据预处理耗时',
+    'data_save_time': '数据保存到磁盘的耗时',
     'transfer_time': '网络传输耗时（模拟带宽限速）',
     'model_load_time': '模型权重加载耗时',
     'warmup_time': 'CUDA 热身耗时',

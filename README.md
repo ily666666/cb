@@ -1117,7 +1117,7 @@ rm -rf ./tasks/my_task/output ./tasks/my_task/result
 | | ① | 边侧1 | `python run_task.py --config link11_federated_edge_1 --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
 | | ① | 边侧2 | `python run_task.py --config link11_federated_edge_2 --task_id 004_train_link11` | 持续同步 `output/federated_train/` |
 
-> **提示**：推理多机最后一步加 `--summary` 可查看全局耗时汇总并写入报告。`--mode` 单机模式自动开启，无需手动加。联邦学习阶段③的 3 条命令同时启动（启动顺序不限），通过文件轮询自动协调。
+ > **提示**：推理多机最后一步加 `--summary` 可查看全局耗时汇总并写入报告。`--mode` 单机模式自动开启，无需手动加。联邦学习阶段③的 3 条命令同时启动（启动顺序不限），通过文件轮询自动协调。
 
 ---
 

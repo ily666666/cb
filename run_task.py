@@ -70,8 +70,9 @@ def collect_all_timings(task_id):
 
     Returns:
         dict: {
-            'steps': { step_name: {data_load_time, transfer_time, model_load_time, warmup_time, inference_time} },
+            'steps': { step_name: {data_load_time, preprocess_time, transfer_time, model_load_time, warmup_time, inference_time} },
             'total_data_load': float,
+            'total_preprocess': float,
             'total_inference': float,
             'total_overhead': float,   # model_load + warmup
             'total_transfer': float,
@@ -80,12 +81,14 @@ def collect_all_timings(task_id):
     output_root = f"./tasks/{task_id}/output"
     steps = {}
     total_data_load = 0.0
+    total_preprocess = 0.0
+    total_data_save = 0.0
     total_inference = 0.0
     total_overhead = 0.0
     total_transfer = 0.0
 
     if not os.path.exists(output_root):
-        return {'steps': steps, 'total_data_load': 0, 'total_inference': 0, 'total_overhead': 0, 'total_transfer': 0}
+        return {'steps': steps, 'total_data_load': 0, 'total_preprocess': 0, 'total_data_save': 0, 'total_inference': 0, 'total_overhead': 0, 'total_transfer': 0}
 
     for step_dir in sorted(os.listdir(output_root)):
         timing_path = os.path.join(output_root, step_dir, 'timing.json')
@@ -94,18 +97,24 @@ def collect_all_timings(task_id):
                 with open(timing_path, 'r', encoding='utf-8') as f:
                     timing = json.load(f)
                 t_data = timing.get('data_load_time', 0)
+                t_prep = timing.get('preprocess_time', 0)
+                t_save = timing.get('data_save_time', 0)
                 t_trans = timing.get('transfer_time', 0)
                 t_load = timing.get('model_load_time', 0)
                 t_warm = timing.get('warmup_time', 0)
                 t_inf = timing.get('inference_time', 0)
                 steps[step_dir] = {
                     'data_load_time': t_data,
+                    'preprocess_time': t_prep,
+                    'data_save_time': t_save,
                     'transfer_time': t_trans,
                     'model_load_time': t_load,
                     'warmup_time': t_warm,
                     'inference_time': t_inf,
                 }
                 total_data_load += t_data
+                total_preprocess += t_prep
+                total_data_save += t_save
                 total_inference += t_inf
                 total_overhead += t_load + t_warm
                 total_transfer += t_trans
@@ -115,6 +124,8 @@ def collect_all_timings(task_id):
     return {
         'steps': steps,
         'total_data_load': total_data_load,
+        'total_preprocess': total_preprocess,
+        'total_data_save': total_data_save,
         'total_inference': total_inference,
         'total_overhead': total_overhead,
         'total_transfer': total_transfer,
@@ -135,6 +146,8 @@ def format_timing_summary(timing_data, total_time=None):
     lines = []
     steps = timing_data['steps']
     total_dl = timing_data.get('total_data_load', 0)
+    total_prep = timing_data.get('total_preprocess', 0)
+    total_save = timing_data.get('total_data_save', 0)
     total_inf = timing_data['total_inference']
     total_oh = timing_data['total_overhead']
     total_trans = timing_data['total_transfer']
@@ -148,6 +161,10 @@ def format_timing_summary(timing_data, total_time=None):
         if t.get('data_load_time', 0) > 0:
             dl_label = "端侧数据读取" if step_name == "device_load" else "数据加载"
             parts.append(f"{dl_label}: {t['data_load_time']:.2f}s")
+        if t.get('preprocess_time', 0) > 0:
+            parts.append(f"数据预处理: {t['preprocess_time']:.2f}s")
+        if t.get('data_save_time', 0) > 0:
+            parts.append(f"数据保存: {t['data_save_time']:.2f}s")
         if t['inference_time'] > 0:
             parts.append(f"推理: {t['inference_time']:.2f}s")
         overhead = t['model_load_time'] + t['warmup_time']
@@ -160,6 +177,10 @@ def format_timing_summary(timing_data, total_time=None):
     lines.append("")
     if total_dl > 0:
         lines.append(f"数据加载耗时合计: {total_dl:.2f}s")
+    if total_prep > 0:
+        lines.append(f"数据预处理耗时合计: {total_prep:.2f}s")
+    if total_save > 0:
+        lines.append(f"数据保存耗时合计: {total_save:.2f}s")
     lines.append(f"推理耗时合计: {total_inf:.2f}s")
     lines.append(f"模型加载+热身合计: {total_oh:.2f}s")
     if total_trans > 0:

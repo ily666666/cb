@@ -308,6 +308,7 @@ def device_load_callback(task_id, **kwargs):
     os.makedirs(output_dir, exist_ok=True)
     
     # ========== 针对radar数据集的智能压缩 ==========
+    t_preprocess_start = time.time()
     task_id_lower = str(task_id).lower()
     if dataset_type == 'radar' and isinstance(X_data, np.ndarray) and X_data.ndim >= 3:
         length = X_data.shape[-1]
@@ -338,6 +339,8 @@ def device_load_callback(task_id, **kwargs):
     else:
         # 非 radar 或非预期 shape：保持原样
         X_data_save = X_data
+    t_preprocess = time.time() - t_preprocess_start
+    print(f"[计时] 数据预处理耗时: {t_preprocess:.2f}s")
 
     output_data = {
         'X': X_data_save,
@@ -347,12 +350,18 @@ def device_load_callback(task_id, **kwargs):
     }
     
     output_path = os.path.join(output_dir, 'data_batch.pkl')
+    t_save_start = time.time()
     save_pickle(output_path, output_data)
-    
+    t_save = time.time() - t_save_start
     print(f"[保存] 数据已保存到: {output_path}")
+    print(f"[计时] 数据保存耗时: {t_save:.2f}s")
     
     # 保存计时信息到文件（供 run_task.py 读取）
-    save_timing(output_dir, {'data_load_time': t_data_load})
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'preprocess_time': t_preprocess,
+        'data_save_time': t_save,
+    })
     
     # 5. 返回统计信息
     result_info = {
