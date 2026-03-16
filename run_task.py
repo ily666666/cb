@@ -163,6 +163,8 @@ def format_timing_summary(timing_data, total_time=None):
     lines.append(f"开销合计(加载+热身): {total_oh:.2f}s")
     if total_trans > 0:
         lines.append(f"网络传输耗时合计: {total_trans:.2f}s")
+    total_all = total_dl + total_inf + total_oh + total_trans
+    lines.append(f"各项耗时总计: {total_all:.2f}s  (数据加载+推理+开销+传输)")
     lines.append(f"推理+开销+传输: {total_inf + total_oh + total_trans:.2f}s")
     lines.append(f"推理+传输: {total_inf + total_trans:.2f}s")
 
