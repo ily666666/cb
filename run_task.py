@@ -146,12 +146,13 @@ def format_timing_summary(timing_data, total_time=None):
     for step_name, t in steps.items():
         parts = []
         if t.get('data_load_time', 0) > 0:
-            parts.append(f"数据加载: {t['data_load_time']:.2f}s")
+            dl_label = "端侧数据读取" if step_name == "device_load" else "数据加载"
+            parts.append(f"{dl_label}: {t['data_load_time']:.2f}s")
         if t['inference_time'] > 0:
-            parts.append(f"纯推理: {t['inference_time']:.2f}s")
+            parts.append(f"推理: {t['inference_time']:.2f}s")
         overhead = t['model_load_time'] + t['warmup_time']
         if overhead > 0:
-            parts.append(f"加载+热身: {overhead:.2f}s")
+            parts.append(f"模型加载+热身: {overhead:.2f}s")
         if t['transfer_time'] > 0:
             parts.append(f"传输: {t['transfer_time']:.2f}s")
         lines.append(f"  {step_name}: {' | '.join(parts)}")
@@ -159,29 +160,20 @@ def format_timing_summary(timing_data, total_time=None):
     lines.append("")
     if total_dl > 0:
         lines.append(f"数据加载耗时合计: {total_dl:.2f}s")
-    lines.append(f"纯推理耗时合计: {total_inf:.2f}s")
-    lines.append(f"开销合计(加载+热身): {total_oh:.2f}s")
+    lines.append(f"推理耗时合计: {total_inf:.2f}s")
+    lines.append(f"模型加载+热身合计: {total_oh:.2f}s")
     if total_trans > 0:
-        lines.append(f"网络传输耗时合计: {total_trans:.2f}s")
-    total_all = total_dl + total_inf + total_oh + total_trans
-    lines.append(f"各项耗时总计: {total_all:.2f}s  (数据加载+推理+开销+传输)")
-    lines.append(f"推理+开销+传输: {total_inf + total_oh + total_trans:.2f}s")
+        lines.append(f"传输耗时合计: {total_trans:.2f}s")
     lines.append(f"推理+传输: {total_inf + total_trans:.2f}s")
-
-    if total_time is not None:
-        lines.append(f"本次运行总耗时: {total_time:.2f}s")
-        net_time = total_time - total_oh
-        if net_time >= 0:
-            lines.append(f"去除开销后: {net_time:.2f}s  (总耗时 {total_time:.2f}s - 加载热身 {total_oh:.2f}s)")
-        else:
-            lines.append(f"去除开销后: N/A  (部分步骤使用了缓存结果，本次运行未产生全部开销)")
 
     return "\n".join(lines)
 
 
+
 def write_timing_report(task_id, timing_data, total_time=None, pipeline=None):
     """
-    将耗时汇总写到 result/timing_summary.txt，并追加到已有的 final_report / cloud_report 等末尾
+    将全局耗时汇总写到 result/timing_summary.txt，并追加到 final_report.txt 末尾。
+    各步骤自身的耗时由各 callback 直接写入各自的报告。
     """
     summary_text = format_timing_summary(timing_data, total_time)
     if not summary_text:
@@ -203,28 +195,28 @@ def write_timing_report(task_id, timing_data, total_time=None, pipeline=None):
         f.write(summary_text)
         f.write("\n")
 
-    # 2. 追加到各步骤的已有报告文件末尾
+    # 2. 追加全局耗时汇总到 final_report.txt
     report_root = f"./tasks/{task_id}/result"
     if os.path.exists(report_root):
         for dirpath, dirnames, filenames in os.walk(report_root):
             for fn in filenames:
-                if fn.endswith('_report.txt') or fn == 'final_report.txt':
-                    fpath = os.path.join(dirpath, fn)
-                    # 避免重复追加：检查是否已有耗时统计
-                    try:
-                        with open(fpath, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                        if '耗时统计汇总' in content:
-                            continue
-                    except Exception:
+                if fn != 'final_report.txt':
+                    continue
+                fpath = os.path.join(dirpath, fn)
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    if '耗时' in content:
                         continue
+                except Exception:
+                    continue
 
-                    with open(fpath, 'a', encoding='utf-8') as f:
-                        f.write("\n" + "=" * 60 + "\n")
-                        f.write("耗时统计汇总\n")
-                        f.write("=" * 60 + "\n")
-                        f.write(summary_text)
-                        f.write("\n")
+                with open(fpath, 'a', encoding='utf-8') as f:
+                    f.write("\n" + "=" * 60 + "\n")
+                    f.write("耗时统计汇总\n")
+                    f.write("=" * 60 + "\n")
+                    f.write(summary_text)
+                    f.write("\n")
 
 
 def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):

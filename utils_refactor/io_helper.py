@@ -139,8 +139,8 @@ TIMING_FIELD_DESCRIPTIONS = {
     'data_load_time': '数据从硬盘加载到内存的耗时',
     'transfer_time': '网络传输耗时（模拟带宽限速）',
     'model_load_time': '模型权重加载耗时',
-    'warmup_time': 'CUDA 热身耗时（首批推理，不计入纯推理时间）',
-    'inference_time': '纯推理耗时（不含加载和热身）',
+    'warmup_time': 'CUDA 热身耗时',
+    'inference_time': '纯推理耗时',
 }
 
 

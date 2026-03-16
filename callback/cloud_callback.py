@@ -272,6 +272,14 @@ def cloud_direct_infer_callback(task_id, **kwargs):
     result_dir = f"./tasks/{task_id}/result/cloud_direct_infer"
     os.makedirs(result_dir, exist_ok=True)
 
+    timing_items = [
+        ('数据加载', f"{t_data_load:.2f}s"),
+        ('推理', f"{t_infer:.2f}s"),
+        ('模型加载+热身', f"{t_model_load + t_warmup:.2f}s"),
+    ]
+    if transfer_info['transfer_time'] > 0:
+        timing_items.append(('传输', f"{transfer_info['transfer_time']:.2f}s"))
+
     _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧直接推理报告', [
         ('配置信息', [
             ('模型类型', model_type),
@@ -284,6 +292,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
             ('平均置信度', f"{confidences.mean():.4f}"),
             ('最低置信度', f"{confidences.min():.4f}"),
         ]),
+        ('耗时信息', timing_items),
     ])
 
     print(f"[完成] 云侧直接推理完成")
@@ -417,6 +426,14 @@ def cloud_infer_callback(task_id, **kwargs):
     result_dir = f"./tasks/{task_id}/result/cloud_infer"
     os.makedirs(result_dir, exist_ok=True)
 
+    timing_items = [
+        ('数据加载', f"{t_data_load:.2f}s"),
+        ('推理', f"{t_infer:.2f}s"),
+        ('模型加载+热身', f"{t_model_load + t_warmup:.2f}s"),
+    ]
+    if transfer_info['transfer_time'] > 0:
+        timing_items.append(('传输', f"{transfer_info['transfer_time']:.2f}s"))
+
     _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧推理报告', [
         ('配置信息', [('模型类型', model_type), ('数据集类型', dataset_type)]),
         ('推理结果', [
@@ -427,6 +444,7 @@ def cloud_infer_callback(task_id, **kwargs):
             ('预测一致样本数', f"{num_agree} ({agree_ratio:.1f}%)"),
             ('云侧修正样本数', num_corrected),
         ]),
+        ('耗时信息', timing_items),
     ])
 
     # 9. 合并边侧+云侧结果生成最终报告

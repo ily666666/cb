@@ -397,7 +397,16 @@ def edge_infer_callback(task_id, **kwargs):
         f.write(f"最小置信度: {confidences.min():.4f}\n")
         f.write(f"最大置信度: {confidences.max():.4f}\n")
         f.write(f"平均置信度: {confidences.mean():.4f}\n")
-        f.write(f"中位数置信度: {np.median(confidences):.4f}\n")
+        f.write(f"中位数置信度: {np.median(confidences):.4f}\n\n")
+        
+        f.write("=" * 60 + "\n")
+        f.write("耗时信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"数据加载: {t_data_load:.2f}s\n")
+        f.write(f"推理: {t_infer:.2f}s\n")
+        f.write(f"模型加载+热身: {t_model_load + t_warmup:.2f}s\n")
+        if transfer_info['transfer_time'] > 0:
+            f.write(f"传输: {transfer_info['transfer_time']:.2f}s\n")
     
     print(f"[报告] 推理报告已保存到: {report_path}")
     
