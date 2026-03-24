@@ -45,7 +45,11 @@ project0210/
 │   ├── 009_cloud_only_radar_test/   # radar 仅云推理
 │   ├── 010_edge_only_radar_test/    # radar 仅边推理
 │   ├── 011_train_rml2016/           # rml2016 训练
-│   └── 012_train_radar/             # radar 训练
+│   ├── 012_train_radar/             # radar 训练
+│   ├── 013_COLLAB_ratr_test/        # ratr 协同推理
+│   ├── 014_cloud_only_ratr_test/    # ratr 仅云推理
+│   ├── 015_edge_only_ratr_test/     # ratr 仅边推理
+│   └── 016_train_ratr/              # ratr 训练
 │
 ├── cloud_pth/               # 云侧模型权重
 ├── edge_pth/                # 边侧模型权重
@@ -159,7 +163,7 @@ python run/prepare_data_splits.py --dataset_type link11 --num_edges 2 --output_d
 
 | 参数 | 说明 | 默认值 | 推荐范围 |
 |------|------|--------|----------|
-| `--dataset_type` | 数据集类型：`link11` / `rml2016` / `radar` | `link11` | — |
+| `--dataset_type` | 数据集类型：`link11` / `rml2016` / `radar` / `ratr` | `link11` | — |
 | `--num_edges` | 边侧数量 | `2` | — |
 | `--dirichlet_alpha` | Dirichlet 参数，越小各边数据越异构（Non-IID 程度） | `0.3` | 见下方说明 |
 | `--cloud_ratio` | 云侧数据占比（剩余给边侧做联邦学习） | `0.8` | 见下方说明 |
@@ -268,6 +272,29 @@ python run_task.py --mode full_train --task_id 012_train_radar
 
 # 5. 跑推理
 python run_task.py --mode device_to_edge_to_cloud --task_id 008_COLLAB_radar_test
+```
+
+#### ratr 数据集
+
+`ratr` 是 **实数 1D 信号**数据集（非复数 I/Q）：
+
+- 信号为 `float32`
+- 推荐形状为 `(N, 1, 1024)`
+- 加载器位于 `utils/readdata_ratr.py`（根目录 `readdata_ratr.py` 仅用于兼容旧 import）
+
+```bash
+# 1. 数据准备
+# ratr 原始数据通常为一个目录，包含多个 *.pkl 文件（例如 E2D*.pkl / P3C*.pkl / P8A*.pkl）
+# 端侧推理任务可直接把 data_path 指到该目录，由 device_load 自动解析
+
+# 2. 若需要训练/联邦学习：先切分为云侧 + 2个边侧
+python run/prepare_data_splits.py --dataset_type ratr --num_edges 2 --output_dir dataset/splits
+
+# 3. 跑训练
+python run_task.py --mode full_train --task_id 016_train_ratr
+
+# 4. 跑推理（协同）
+python run_task.py --mode device_to_edge_to_cloud --task_id 013_COLLAB_ratr_test
 ```
 
 > **注意**：每个数据集中，步骤 1（推理测试数据）和步骤 2-3（训练数据）是独立的。只跑推理只需完成步骤 1，只跑训练只需完成步骤 2-3。radar 数据集同时保留了 MATLAB 版本（.m）和 Python 版本（.py），功能等效，任选其一即可。

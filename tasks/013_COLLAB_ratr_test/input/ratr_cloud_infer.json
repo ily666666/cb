@@ -1,0 +1,25 @@
+{
+    "_注释_model_path": "云侧教师模型权重(.pth)",
+    "model_path": "cloud_pth/ratr/teacher_model.pth",
+
+    "_注释_model_type": "教师模型类型",
+    "model_type": "real_resnet101_ratr",
+
+    "_注释_num_classes": "分类数",
+    "num_classes": 3,
+
+    "_注释_device": "计算设备",
+    "device": "cuda:0",
+
+    "_注释_batch_size": "推理 batch_size",
+    "batch_size": 32,
+
+    "_注释_simulate_bandwidth_mbps": "模拟边侧→云侧带宽(MB/s)，null=不模拟",
+    "simulate_bandwidth_mbps": 10,
+
+    "_注释_input_data": "协同模式下读取 edge_infer 产生的低置信度样本",
+    "input_data": {
+        "parent_folder": "edge_infer",
+        "signals_file": "low_conf_signals.pkl"
+    }
+}

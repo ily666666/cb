@@ -49,7 +49,7 @@ def _prepare_iq_to_complex(X_data):
     return X_data
 
 
-def batch_inference_efficient(model, X_data, y_data, batch_size, device):
+def batch_inference_efficient(model, X_data, y_data, batch_size, device, dataset_type=None):
     """
     边侧高效批量推理
     
@@ -69,9 +69,18 @@ def batch_inference_efficient(model, X_data, y_data, batch_size, device):
     model.eval()
     model.to(device)
     
-    # 预处理：统一转为 complex（模型 forward 里自己拆 real/imag）
-    X_data = _prepare_iq_to_complex(X_data)
-    print(f"[边侧推理] 数据格式: shape={X_data.shape}, dtype={X_data.dtype}")
+    # 预处理：除 ratr 外统一转为 complex（模型 forward 里自己拆 real/imag）
+    if dataset_type == 'ratr':
+        if isinstance(X_data, np.ndarray):
+            X_data = X_data.astype(np.float32)
+            if X_data.ndim == 2:
+                X_data = X_data[:, None, :]
+            elif X_data.ndim == 3 and X_data.shape[1] != 1:
+                X_data = X_data[:, :1, :]
+        print(f"[边侧推理] (ratr) 数据格式: shape={X_data.shape}, dtype={getattr(X_data, 'dtype', type(X_data))}")
+    else:
+        X_data = _prepare_iq_to_complex(X_data)
+        print(f"[边侧推理] 数据格式: shape={X_data.shape}, dtype={X_data.dtype}")
     
     all_predictions = []
     all_confidences = []
@@ -86,10 +95,16 @@ def batch_inference_efficient(model, X_data, y_data, batch_size, device):
     t_warmup_start = time.time()
     with torch.no_grad():
         warmup_X = X_data[:min(batch_size, num_samples)]
-        if isinstance(warmup_X, np.ndarray):
-            warmup_tensor = torch.from_numpy(warmup_X).cfloat().to(device)
+        if dataset_type == 'ratr':
+            if isinstance(warmup_X, np.ndarray):
+                warmup_tensor = torch.from_numpy(warmup_X).float().to(device)
+            else:
+                warmup_tensor = warmup_X.float().to(device)
         else:
-            warmup_tensor = warmup_X.cfloat().to(device)
+            if isinstance(warmup_X, np.ndarray):
+                warmup_tensor = torch.from_numpy(warmup_X).cfloat().to(device)
+            else:
+                warmup_tensor = warmup_X.cfloat().to(device)
         _ = model(warmup_tensor)
     t_warmup = time.time() - t_warmup_start
     print(f"[推理] CUDA 热身完成 ({t_warmup:.2f}s)")
@@ -102,11 +117,17 @@ def batch_inference_efficient(model, X_data, y_data, batch_size, device):
             batch_X = X_data[i:i+batch_size]
             batch_y = y_data[i:i+batch_size]
             
-            # 转换为 cfloat Tensor
-            if isinstance(batch_X, np.ndarray):
-                batch_X_tensor = torch.from_numpy(batch_X).cfloat().to(device)
+            # 转换为 Tensor
+            if dataset_type == 'ratr':
+                if isinstance(batch_X, np.ndarray):
+                    batch_X_tensor = torch.from_numpy(batch_X).float().to(device)
+                else:
+                    batch_X_tensor = batch_X.float().to(device)
             else:
-                batch_X_tensor = batch_X.cfloat().to(device)
+                if isinstance(batch_X, np.ndarray):
+                    batch_X_tensor = torch.from_numpy(batch_X).cfloat().to(device)
+                else:
+                    batch_X_tensor = batch_X.cfloat().to(device)
             
             if isinstance(batch_y, np.ndarray):
                 batch_y_tensor = torch.from_numpy(batch_y).long()
@@ -281,7 +302,7 @@ def edge_infer_callback(task_id, **kwargs):
     
     # 5. 批量推理（batch_inference_efficient 内部会做 warmup 并只计纯推理时间）
     predictions, confidences, corrects, t_warmup, t_infer = batch_inference_efficient(
-        model, X_data, y_data, batch_size, device
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
     )
     
     # 6. 计算准确率
@@ -357,7 +378,7 @@ def edge_infer_callback(task_id, **kwargs):
     result_dir = f"./tasks/{task_id}/result/edge_infer"
     os.makedirs(result_dir, exist_ok=True)
     
-    report_path = os.path.join(result_dir, 'inference_report.txt')
+    report_path = os.path.join(result_dir, 'edge_report.txt')
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write("="*60 + "\n")
         f.write("边侧推理报告\n")

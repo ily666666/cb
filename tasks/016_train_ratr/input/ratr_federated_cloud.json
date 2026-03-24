@@ -1,0 +1,33 @@
+{
+    "_部署模式": "分布式专用 | 阶段3 | 云侧聚合",
+
+    "_注释": "联邦学习 - 云侧聚合服务",
+
+    "_注释_input_data": "上一步（edge_kd）的输出，作为本步骤的输入",
+
+    "_注释_dataset_type": "数据集类型",
+    "dataset_type": "ratr",
+
+    "_注释_edge_model_type": "边侧模型类型（全局模型架构）",
+    "edge_model_type": "real_resnet10_ratr",
+
+    "_注释_num_classes": "分类数",
+    "num_classes": 3,
+
+    "_注释_num_rounds": "联邦学习通信轮数",
+    "num_rounds": 10,
+
+    "_注释_device": "计算设备",
+    "device": "cuda:0",
+
+    "_注释_num_edges": "参与联邦学习的边侧节点数量",
+    "num_edges": 2,
+
+    "_注释_sync_timeout": "等待边侧模型/同步文件的超时时间（秒）",
+    "sync_timeout": 1800,
+
+    "input_data": {
+        "parent_folder": "edge_kd_2",
+        "file_name": "student_edge_2.pth"
+    }
+}

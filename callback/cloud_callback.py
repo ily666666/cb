@@ -52,7 +52,7 @@ def _prepare_for_complex_model(X_data):
     return X_data
 
 
-def batch_inference_cloud(model, X_data, y_data, batch_size, device):
+def batch_inference_cloud(model, X_data, y_data, batch_size, device, dataset_type=None):
     """
     云侧（complex模型）批量推理
     
@@ -63,9 +63,18 @@ def batch_inference_cloud(model, X_data, y_data, batch_size, device):
     model.eval()
     model.to(device)
 
-    # 预处理：确保数据是 complex 模型需要的格式
-    X_data = _prepare_for_complex_model(X_data)
-    print(f"[云侧推理] 数据格式: shape={X_data.shape}, dtype={X_data.dtype}")
+    # 预处理：除 ratr 外确保数据是 complex 模型需要的格式
+    if dataset_type == 'ratr':
+        if isinstance(X_data, np.ndarray):
+            X_data = X_data.astype(np.float32)
+            if X_data.ndim == 2:
+                X_data = X_data[:, None, :]
+            elif X_data.ndim == 3 and X_data.shape[1] != 1:
+                X_data = X_data[:, :1, :]
+        print(f"[云侧推理] (ratr) 数据格式: shape={X_data.shape}, dtype={getattr(X_data, 'dtype', type(X_data))}")
+    else:
+        X_data = _prepare_for_complex_model(X_data)
+        print(f"[云侧推理] 数据格式: shape={X_data.shape}, dtype={X_data.dtype}")
 
     all_predictions = []
     all_confidences = []
@@ -80,10 +89,16 @@ def batch_inference_cloud(model, X_data, y_data, batch_size, device):
     t_warmup_start = time.time()
     with torch.no_grad():
         warmup_X = X_data[:min(batch_size, num_samples)]
-        if isinstance(warmup_X, np.ndarray):
-            warmup_tensor = torch.from_numpy(warmup_X).cfloat().to(device)
+        if dataset_type == 'ratr':
+            if isinstance(warmup_X, np.ndarray):
+                warmup_tensor = torch.from_numpy(warmup_X).float().to(device)
+            else:
+                warmup_tensor = warmup_X.float().to(device)
         else:
-            warmup_tensor = warmup_X.cfloat().to(device)
+            if isinstance(warmup_X, np.ndarray):
+                warmup_tensor = torch.from_numpy(warmup_X).cfloat().to(device)
+            else:
+                warmup_tensor = warmup_X.cfloat().to(device)
         _ = model(warmup_tensor)
     t_warmup = time.time() - t_warmup_start
     print(f"[云侧推理] CUDA 热身完成 ({t_warmup:.2f}s)")
@@ -96,11 +111,17 @@ def batch_inference_cloud(model, X_data, y_data, batch_size, device):
             batch_X = X_data[i:i+batch_size]
             batch_y = y_data[i:i+batch_size]
 
-            # 数据已在 _prepare_for_complex_model 中转为 complex64
-            if isinstance(batch_X, np.ndarray):
-                batch_X_tensor = torch.from_numpy(batch_X).cfloat().to(device)
+            if dataset_type == 'ratr':
+                if isinstance(batch_X, np.ndarray):
+                    batch_X_tensor = torch.from_numpy(batch_X).float().to(device)
+                else:
+                    batch_X_tensor = batch_X.float().to(device)
             else:
-                batch_X_tensor = batch_X.cfloat().to(device)
+                # 数据已在 _prepare_for_complex_model 中转为 complex64
+                if isinstance(batch_X, np.ndarray):
+                    batch_X_tensor = torch.from_numpy(batch_X).cfloat().to(device)
+                else:
+                    batch_X_tensor = batch_X.cfloat().to(device)
 
             if isinstance(batch_y, np.ndarray):
                 batch_y_tensor = torch.from_numpy(batch_y).long()
@@ -245,7 +266,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
 
     # 5. 批量推理
     predictions, confidences, corrects, t_warmup, t_infer = batch_inference_cloud(
-        model, X_data, y_data, batch_size, device
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
     )
 
     accuracy = corrects.mean()
@@ -387,7 +408,7 @@ def cloud_infer_callback(task_id, **kwargs):
 
     # 5. 批量推理
     cloud_predictions, cloud_confidences, cloud_corrects, t_warmup, t_infer = batch_inference_cloud(
-        model, low_conf_X, low_conf_y, batch_size, device
+        model, low_conf_X, low_conf_y, batch_size, device, dataset_type=dataset_type
     )
 
     cloud_accuracy = cloud_corrects.mean()

@@ -35,14 +35,19 @@ DATASET_CONFIG = {
         'description': 'Link11 - 7类雷达发射机识别'
     },
     'rml2016': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/rml2016_merged_data_10runs.pkl',
+        'data_path': 'E:/BaiduNet_Download/dataGen/rml2016_10.pkl',
         'num_classes': 6,
         'description': 'RML2016 - 6类调制识别'
     },
     'radar': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/radar_merged_data.mat',
+        'data_path': 'E:/BaiduNet_Download/dataGen/radar_10.mat',
         'num_classes': 7,
         'description': 'Radar - 7类雷达个体识别'
+    },
+    'ratr': {
+        'data_path': 'E:/BaiduNet_Download/dataGen/small_ratr',
+        'num_classes': 3,
+        'description': 'RATR - 3类雷达目标识别'
     }
 }
 
@@ -117,6 +122,11 @@ def load_and_split_data(data_path, dataset_type, num_edges, num_classes,
         full_train_dataset = RadarDataset(mat_path=data_path, split='train', seed=seed)
         full_val_dataset = RadarDataset(mat_path=data_path, split='val', seed=seed)
         full_test_dataset = RadarDataset(mat_path=data_path, split='test', seed=seed)
+    elif dataset_type == 'ratr':
+        from utils.readdata_ratr import load_ratr_numpy
+        train_X, train_y = load_ratr_numpy(data_path, split='train', seed=seed)
+        val_X, val_y = load_ratr_numpy(data_path, split='val', seed=seed)
+        test_X, test_y = load_ratr_numpy(data_path, split='test', seed=seed)
     else:
         raise ValueError(f"Unsupported dataset type: {dataset_type}")
     
@@ -137,6 +147,9 @@ def load_and_split_data(data_path, dataset_type, num_edges, num_classes,
             val_X = np.concatenate([val_X, val_X], axis=-1)
             test_X = np.concatenate([test_X, test_X], axis=-1)
             print(f"   ✅ 拼接完成，新形状: {train_X.shape}")
+    elif dataset_type == 'ratr':
+        # RATR 已直接得到 train/val/test 的 numpy 数组
+        pass
     else:
         # Link11和RML2016使用标准属性名
         train_X = full_train_dataset.signals
@@ -320,8 +333,8 @@ def main():
     )
     
     parser.add_argument('--dataset_type', type=str, 
-                        default='link11',
-                        choices=['link11', 'rml2016', 'radar'], 
+                        default='ratr',
+                        choices=['link11', 'rml2016', 'radar', 'ratr'], 
                         help='数据集类型（自动设置路径和类别数）')
     parser.add_argument('--data_path', type=str, 
                         default=None,
@@ -337,9 +350,9 @@ def main():
                         help='云侧数据比例（默认0.8，云侧80%%用于预训练+蒸馏，边侧20%%用于联邦学习）')
     parser.add_argument('--seed', type=int, default=42, 
                         help='随机种子')
-    parser.add_argument('--output_dir', type=str, default='dataset/splits', 
+    parser.add_argument('--output_dir', type=str, default='dataset/splits/', 
                         help='输出目录')
-    parser.add_argument('--radar_length', type=int, default=1000, 
+    parser.add_argument('--radar_length', type=int, default=500, 
                         choices=[500, 1000],
                         help='Radar数据集样本长度（500=原始，1000=拼接）')
     

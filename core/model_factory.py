@@ -90,6 +90,17 @@ def create_model_by_type(model_name, num_classes, dataset_type='ads'):
             from model.real_resnet20_link11 import ResNet20Real
             return ResNet20Real(num_classes=num_classes)
 
+    elif dataset_type == 'ratr':
+        if model_name == 'real_resnet101_ratr':
+            from model.real_resnet101_ratr import ResNet101Real
+            return ResNet101Real(num_classes=num_classes)
+        elif model_name == 'real_resnet10_ratr':
+            from model.real_resnet10_ratr import ResNet10Real
+            return ResNet10Real(num_classes=num_classes)
+        else:
+            from model.real_resnet101_ratr import ResNet101Real
+            return ResNet101Real(num_classes=num_classes)
+
     else:
         if model_name == 'real_resnet20_ads':
             from model.real_resnet20_ads import ResNet20Real

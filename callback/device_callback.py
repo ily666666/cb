@@ -236,64 +236,93 @@ def device_load_callback(task_id, **kwargs):
     
     t_load_start = time.time()
     try:
-        if os.path.isdir(data_path):
-            files = sorted([
-                os.path.join(data_path, f)
-                for f in os.listdir(data_path)
-                if f.lower().endswith('.pkl') or f.lower().endswith('.mat')
-            ])
-            if not files:
-                error_msg = f"目录中没有 .pkl 或 .mat 文件: {data_path}"
-                print(f"[错误] {error_msg}")
-                return {'status': 'error', 'message': error_msg}
+        # ---- RATR 特殊加载：使用 readdata_ratr.py 解析 proj_test_dataset_pkl ----
+        if dataset_type == 'ratr':
+            from utils.readdata_ratr import load_ratr_numpy
 
-            if max_files is not None:
-                files = files[:max_files]
+            # num_batches 优先限制样本数
+            max_samples = None
+            if num_batches is not None:
+                max_samples = int(num_batches) * int(batch_size)
 
-            print(f"[加载] 发现 {len(files)} 个文件（目录模式）")
-
-            all_X = []
-            all_y = []
-            for i, fpath in enumerate(files):
-                ext = os.path.splitext(fpath)[1].lower()
-                if ext == '.pkl':
-                    with open(fpath, 'rb') as f:
-                        data = pickle.load(f)
-                    X_part, y_part = _parse_pkl_data(data, dataset_type)
-                elif ext == '.mat':
-                    X_part, y_part = _load_mat_data(fpath, dataset_type)
-                else:
-                    continue
-
-                all_X.append(np.array(X_part))
-                all_y.append(np.array(y_part))
-                if (i + 1) % 10 == 0 or i == len(files) - 1:
-                    print(f"[加载] 已加载 {i+1}/{len(files)} 个文件")
-
-            X_data = np.concatenate(all_X, axis=0)
-            y_data = np.concatenate(all_y, axis=0)
-        else:
-            # ---- 单文件模式 ----
-            print(f"[加载] 正在加载数据文件...")
-            ext = os.path.splitext(data_path)[1].lower()
-            if ext == '.pkl':
-                with open(data_path, 'rb') as f:
-                    data = pickle.load(f)
-                X_data, y_data = _parse_pkl_data(data, dataset_type)
-            elif ext == '.mat':
-                X_data, y_data = _load_mat_data(data_path, dataset_type)
+            if os.path.isdir(data_path):
+                X_data, y_data = load_ratr_numpy(
+                    data_path,
+                    split='test',
+                    seed=42,
+                    max_samples=max_samples,
+                )
             else:
-                raise ValueError(f"不支持的文件格式: {ext}")
-        
-        # 限制样本数量（用于快速测试）
-        if num_batches is not None:
-            max_samples = num_batches * batch_size
-            X_data = X_data[:max_samples]
-            y_data = y_data[:max_samples]
-        
-        total_samples = len(X_data)
-        print(f"[加载] 成功加载 {total_samples} 个样本")
-        print(f"[加载] 数据形状: X={X_data.shape}, dtype={X_data.dtype}")
+                X_data, y_data = load_ratr_numpy(
+                    data_path,
+                    split='test',
+                    seed=42,
+                    max_samples=max_samples,
+                )
+
+            total_samples = len(X_data)
+            print(f"[加载] (ratr) 成功加载 {total_samples} 个样本")
+            print(f"[加载] (ratr) 数据形状: X={X_data.shape}, dtype={X_data.dtype}")
+
+        else:
+            if os.path.isdir(data_path):
+                files = sorted([
+                    os.path.join(data_path, f)
+                    for f in os.listdir(data_path)
+                    if f.lower().endswith('.pkl') or f.lower().endswith('.mat')
+                ])
+                if not files:
+                    error_msg = f"目录中没有 .pkl 或 .mat 文件: {data_path}"
+                    print(f"[错误] {error_msg}")
+                    return {'status': 'error', 'message': error_msg}
+
+                if max_files is not None:
+                    files = files[:max_files]
+
+                print(f"[加载] 发现 {len(files)} 个文件（目录模式）")
+
+                all_X = []
+                all_y = []
+                for i, fpath in enumerate(files):
+                    ext = os.path.splitext(fpath)[1].lower()
+                    if ext == '.pkl':
+                        with open(fpath, 'rb') as f:
+                            data = pickle.load(f)
+                        X_part, y_part = _parse_pkl_data(data, dataset_type)
+                    elif ext == '.mat':
+                        X_part, y_part = _load_mat_data(fpath, dataset_type)
+                    else:
+                        continue
+
+                    all_X.append(np.array(X_part))
+                    all_y.append(np.array(y_part))
+                    if (i + 1) % 10 == 0 or i == len(files) - 1:
+                        print(f"[加载] 已加载 {i+1}/{len(files)} 个文件")
+
+                X_data = np.concatenate(all_X, axis=0)
+                y_data = np.concatenate(all_y, axis=0)
+            else:
+                # ---- 单文件模式 ----
+                print(f"[加载] 正在加载数据文件...")
+                ext = os.path.splitext(data_path)[1].lower()
+                if ext == '.pkl':
+                    with open(data_path, 'rb') as f:
+                        data = pickle.load(f)
+                    X_data, y_data = _parse_pkl_data(data, dataset_type)
+                elif ext == '.mat':
+                    X_data, y_data = _load_mat_data(data_path, dataset_type)
+                else:
+                    raise ValueError(f"不支持的文件格式: {ext}")
+
+            # 限制样本数量（用于快速测试）
+            if num_batches is not None:
+                max_samples = num_batches * batch_size
+                X_data = X_data[:max_samples]
+                y_data = y_data[:max_samples]
+
+            total_samples = len(X_data)
+            print(f"[加载] 成功加载 {total_samples} 个样本")
+            print(f"[加载] 数据形状: X={X_data.shape}, dtype={X_data.dtype}")
         
     except Exception as e:
         error_msg = f"加载数据失败: {str(e)}"

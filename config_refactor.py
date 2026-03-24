@@ -33,7 +33,13 @@ DATASET_CONFIG = {
         'signal_length': 500,
         'cloud_model': 'complex_resnet50_radar',
         'edge_model': 'real_resnet20_radar',
-    }
+    },
+    'ratr': {
+        'num_classes': 3,
+        'signal_length': 1024,
+        'cloud_model': 'real_resnet101_ratr',
+        'edge_model': 'real_resnet10_ratr',
+    },
 }
 
 # ==================== 模型路径配置 ====================
@@ -70,6 +76,11 @@ SUPPORTED_TASKS = [
     'radar_device_load', 'radar_edge_infer', 'radar_cloud_infer', 'radar_cloud_direct_infer',
     'radar_cloud_pretrain', 'radar_edge_kd', 'radar_federated_train',
     'radar_federated_cloud', 'radar_federated_edge', 'radar_federated_server',
+
+    # ratr 数据集专用
+    'ratr_device_load', 'ratr_edge_infer', 'ratr_cloud_infer', 'ratr_cloud_direct_infer',
+    'ratr_cloud_pretrain', 'ratr_edge_kd', 'ratr_federated_train',
+    'ratr_federated_cloud', 'ratr_federated_edge', 'ratr_federated_server',
 ]
 
 # ==================== 支持的流水线模式 ====================

@@ -60,11 +60,19 @@ def _prepare_iq_to_complex(X_data):
 # 通用训练辅助函数
 # ================================================================
 
-def _make_dataloader(X, y, batch_size, shuffle=True):
-    """从 numpy 数组创建 DataLoader，I/Q 数据统一转为 complex"""
+def _make_dataloader(X, y, batch_size, shuffle=True, dataset_type=None):
+    """从 numpy 数组创建 DataLoader，除 ratr 外 I/Q 数据统一转为 complex"""
     if isinstance(X, np.ndarray):
-        X = _prepare_iq_to_complex(X)
-        X_tensor = torch.from_numpy(X).cfloat()
+        if dataset_type == 'ratr':
+            X = X.astype(np.float32)
+            if X.ndim == 2:
+                X = X[:, None, :]
+            elif X.ndim == 3 and X.shape[1] != 1:
+                X = X[:, :1, :]
+            X_tensor = torch.from_numpy(X).float()
+        else:
+            X = _prepare_iq_to_complex(X)
+            X_tensor = torch.from_numpy(X).cfloat()
     else:
         X_tensor = X
 
@@ -195,10 +203,20 @@ def _load_split_data(data_path, dataset_type):
     raise ValueError(f"不支持的数据格式: {type(data)}, keys={data.keys() if isinstance(data, dict) else 'N/A'}")
 
 
-def _generate_soft_labels_from_teacher(teacher, X_train, batch_size, temperature, device):
+def _generate_soft_labels_from_teacher(teacher, X_train, batch_size, temperature, device, dataset_type=None):
     """用教师模型对训练数据生成软标签（方案B: 在边侧本地生成）"""
-    X_prepared = _prepare_iq_to_complex(X_train)
-    X_tensor = torch.from_numpy(X_prepared).cfloat() if isinstance(X_prepared, np.ndarray) else X_prepared
+    if dataset_type == 'ratr':
+        X_prepared = X_train
+        if isinstance(X_prepared, np.ndarray):
+            X_prepared = X_prepared.astype(np.float32)
+            if X_prepared.ndim == 2:
+                X_prepared = X_prepared[:, None, :]
+            elif X_prepared.ndim == 3 and X_prepared.shape[1] != 1:
+                X_prepared = X_prepared[:, :1, :]
+        X_tensor = torch.from_numpy(X_prepared).float() if isinstance(X_prepared, np.ndarray) else X_prepared
+    else:
+        X_prepared = _prepare_iq_to_complex(X_train)
+        X_tensor = torch.from_numpy(X_prepared).cfloat() if isinstance(X_prepared, np.ndarray) else X_prepared
     dummy_y = torch.zeros(len(X_tensor), dtype=torch.long)
     loader = DataLoader(TensorDataset(X_tensor, dummy_y), batch_size=batch_size, shuffle=False)
 
@@ -275,9 +293,9 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     X_val, y_val = splits['val']
     X_test, y_test = splits['test']
 
-    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True)
-    val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False)
-    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False)
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
     print(f"[加载] 训练集: {len(X_train)}, 验证集: {len(X_val)}, 测试集: {len(X_test)}")
 
     # 4. 创建模型
@@ -392,7 +410,7 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
 
 def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels,
                           alpha, temperature, epochs, batch_size, learning_rate,
-                          device, label=""):
+                          device, label="", dataset_type=None):
     """蒸馏训练一个学生模型
 
     返回: {'best_state': state_dict, 'best_acc': float, 'best_epoch': int, 'train_time': float}
@@ -402,14 +420,24 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
     ce_criterion = nn.CrossEntropyLoss()
     kl_criterion = nn.KLDivLoss(reduction='batchmean')
 
-    X_prepared = _prepare_iq_to_complex(X_train)
-    X_tensor = torch.from_numpy(X_prepared).cfloat() if isinstance(X_prepared, np.ndarray) else X_prepared
+    if dataset_type == 'ratr':
+        X_prepared = X_train
+        if isinstance(X_prepared, np.ndarray):
+            X_prepared = X_prepared.astype(np.float32)
+            if X_prepared.ndim == 2:
+                X_prepared = X_prepared[:, None, :]
+            elif X_prepared.ndim == 3 and X_prepared.shape[1] != 1:
+                X_prepared = X_prepared[:, :1, :]
+        X_tensor = torch.from_numpy(X_prepared).float() if isinstance(X_prepared, np.ndarray) else X_prepared
+    else:
+        X_prepared = _prepare_iq_to_complex(X_train)
+        X_tensor = torch.from_numpy(X_prepared).cfloat() if isinstance(X_prepared, np.ndarray) else X_prepared
     y_tensor = torch.from_numpy(y_train).long() if isinstance(y_train, np.ndarray) else y_train
     soft_tensor = torch.from_numpy(soft_labels).float()
 
     train_dataset = TensorDataset(X_tensor, y_tensor, soft_tensor)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
 
     total_batches = len(train_loader)
     kd_log_interval = 100
@@ -633,7 +661,7 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
         print(f"[边侧 {eid}] 生成软标签...")
         soft_labels = _generate_soft_labels_from_teacher(
-            teacher, X_train, batch_size, temperature, device)
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
         print(f"[边侧 {eid}] 软标签: {soft_labels.shape}")
 
         student = create_model_by_type(student_model_type, num_classes, dataset_type)
@@ -642,7 +670,7 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
         kd_result = _kd_train_one_student(
             student, X_train, y_train, X_test, y_test, soft_labels,
             alpha, temperature, epochs, batch_size, learning_rate,
-            device, label=f"边{eid}")
+            device, label=f"边{eid}", dataset_type=dataset_type)
 
         torch.save({
             'model_state_dict': kd_result['best_state'],
@@ -832,7 +860,7 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
         print(f"[边侧 {eid}] 生成软标签...")
         soft_labels = _generate_soft_labels_from_teacher(
-            teacher, X_train, batch_size, temperature, device)
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
         print(f"[边侧 {eid}] 软标签: {soft_labels.shape}")
 
         student = create_model_by_type(student_model_type, num_classes, dataset_type)
@@ -841,7 +869,7 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
         kd_result = _kd_train_one_student(
             student, X_train, y_train, X_test, y_test, soft_labels,
             alpha, temperature, epochs, batch_size, learning_rate,
-            device, label=f"边{eid}")
+            device, label=f"边{eid}", dataset_type=dataset_type)
 
         torch.save({
             'model_state_dict': kd_result['best_state'],
@@ -961,8 +989,17 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
     input_data = config.get('input_data', {})
-    init_model_path = input_data.get('file_name',
-        config.get('file_name', None))
+    init_model_file = input_data.get('file_name', config.get('file_name', None))
+    init_parent_folder = input_data.get('parent_folder', None)
+    if init_model_file and init_parent_folder:
+        # 兼容：若 file_name 只是文件名（无目录），则拼接到 tasks/{task_id}/output/{parent_folder}/ 下
+        # 若用户已提供相对/绝对路径，则按原样使用
+        if (not os.path.isabs(init_model_file)) and (os.path.dirname(init_model_file) == ''):
+            init_model_path = os.path.join(f"./tasks/{task_id}/output", init_parent_folder, init_model_file)
+        else:
+            init_model_path = init_model_file
+    else:
+        init_model_path = init_model_file
 
     num_edges = len(edge_data_paths)
     output_dir = f"./tasks/{task_id}/output/federated_train"
@@ -983,8 +1020,8 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
         splits = _load_split_data(path, dataset_type)
         X_train, y_train = splits['train']
         X_test, y_test = splits['test']
-        edge_train_loaders.append(_make_dataloader(X_train, y_train, batch_size, shuffle=True))
-        edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False))
+        edge_train_loaders.append(_make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type))
+        edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type))
         edge_sizes.append(len(X_train))
 
     # 2. 初始化全局模型（从各边 KD 模型聚合）
@@ -1431,7 +1468,7 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
     os.makedirs(output_dir, exist_ok=True)
 
     # 检查是否已完成
-    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_federated_model.pth')
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
     if os.path.exists(final_model_path):
         print(f"[跳过] 边 {edge_id} 最终模型已存在: {final_model_path}")
         return {'status': 'cached'}
@@ -1444,8 +1481,8 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
     splits = _load_split_data(data_path, dataset_type)
     X_train, y_train = splits['train']
     X_test, y_test = splits['test']
-    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True)
-    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False)
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
     num_samples = len(X_train)
     print(f"[加载] 训练集: {num_samples} 样本, 测试集: {len(X_test)} 样本")
 
@@ -1583,8 +1620,8 @@ def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
     splits = _load_split_data(data_path, dataset_type)
     X_train, y_train = splits['train']
     X_test, y_test = splits['test']
-    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True)
-    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False)
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
     num_samples = len(X_train)
     print(f"[加载] 训练集: {num_samples} 样本, 测试集: {len(X_test)} 样本")
 

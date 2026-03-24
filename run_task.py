@@ -30,6 +30,7 @@ from callback import (
     link11_device_callback, link11_edge_callback, link11_cloud_callback, link11_train_callback,
     rml2016_device_callback, rml2016_edge_callback, rml2016_cloud_callback, rml2016_train_callback,
     radar_device_callback, radar_edge_callback, radar_cloud_callback, radar_train_callback,
+    ratr_device_callback, ratr_edge_callback, ratr_cloud_callback, ratr_train_callback,
 )
 from datetime import datetime
 from config_refactor import PIPELINE_MODES, SUPPORTED_TASKS
@@ -57,8 +58,8 @@ def parse_config_name(config_name):
         base = match.group(1)
         num = int(match.group(2))
         # 支持原始和数据集前缀版本
-        edge_kd_bases = ['edge_kd', 'link11_edge_kd', 'rml2016_edge_kd', 'radar_edge_kd']
-        fed_edge_bases = ['federated_edge', 'link11_federated_edge', 'rml2016_federated_edge', 'radar_federated_edge']
+        edge_kd_bases = ['edge_kd', 'link11_edge_kd', 'rml2016_edge_kd', 'radar_edge_kd', 'ratr_edge_kd']
+        fed_edge_bases = ['federated_edge', 'link11_federated_edge', 'rml2016_federated_edge', 'radar_federated_edge', 'ratr_federated_edge']
         if base in edge_kd_bases + fed_edge_bases:
             return base, num
     return config_name, None
@@ -158,20 +159,20 @@ def format_timing_summary(timing_data, total_time=None):
     lines.append("各步骤耗时明细:")
     for step_name, t in steps.items():
         parts = []
+        overhead = t.get('model_load_time', 0) + t.get('warmup_time', 0)
         if t.get('data_load_time', 0) > 0:
-            dl_label = "端侧数据读取" if step_name == "device_load" else "数据加载"
-            parts.append(f"{dl_label}: {t['data_load_time']:.2f}s")
+            dl_label = "端侧数据加载" if step_name == "device_load" else "数据加载"
+            parts.append(f"{dl_label}: {t.get('data_load_time', 0):.2f}s")
         if t.get('preprocess_time', 0) > 0:
-            parts.append(f"数据预处理: {t['preprocess_time']:.2f}s")
+            parts.append(f"数据预处理: {t.get('preprocess_time', 0):.2f}s")
         if t.get('data_save_time', 0) > 0:
-            parts.append(f"数据保存: {t['data_save_time']:.2f}s")
-        if t['inference_time'] > 0:
-            parts.append(f"推理: {t['inference_time']:.2f}s")
-        overhead = t['model_load_time'] + t['warmup_time']
+            parts.append(f"数据保存: {t.get('data_save_time', 0):.2f}s")
+        if t.get('transfer_time', 0) > 0:
+            parts.append(f"传输: {t.get('transfer_time', 0):.2f}s")
         if overhead > 0:
             parts.append(f"模型加载+热身: {overhead:.2f}s")
-        if t['transfer_time'] > 0:
-            parts.append(f"传输: {t['transfer_time']:.2f}s")
+        if t.get('inference_time', 0) > 0:
+            parts.append(f"推理: {t.get('inference_time', 0):.2f}s")
         lines.append(f"  {step_name}: {' | '.join(parts)}")
 
     lines.append("")
@@ -186,7 +187,7 @@ def format_timing_summary(timing_data, total_time=None):
     if total_trans > 0:
         lines.append(f"传输耗时合计: {total_trans:.2f}s")
     lines.append(f"推理+传输: {total_inf + total_trans:.2f}s")
-
+    lines.append(f"总耗时: {total_dl + total_prep + total_save + total_inf + total_trans:.2f}s")
     return "\n".join(lines)
 
 
@@ -305,12 +306,12 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
     print("执行摘要")
     print(f"{'='*60}")
 
-    # 打印各步骤执行结果
-    for step, r in results.items():
-        elapsed = step_times.get(step, 0)
-        print(f"  {step}: {r.get('status')}  ({elapsed:.2f}s)")
+    # # 打印各步骤执行结果
+    # for step, r in results.items():
+    #     elapsed = step_times.get(step, 0)
+    #     print(f"  {step}: {r.get('status')}  ({elapsed:.2f}s)")
 
-    print(f"\n  本次运行耗时: {total_time:.2f}s")
+    # print(f"\n  本次运行耗时: {total_time:.2f}s")
 
     if show_summary:
         # 收集全局耗时统计（扫描该 task 下所有已存在的 timing.json）
