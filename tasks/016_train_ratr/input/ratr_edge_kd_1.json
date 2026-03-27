@@ -17,7 +17,7 @@
     "edge_id": 1,
 
     "_注释_student_model_type": "学生模型类型（边侧轻量模型）",
-    "student_model_type": "real_resnet10_ratr",
+    "student_model_type": "real_resnet7_ratr_cp",
 
     "_注释_num_classes": "分类数",
     "num_classes": 3,
@@ -29,7 +29,7 @@
     "teacher_model_type": "real_resnet101_ratr",
 
     "_注释_epochs": "蒸馏训练轮数",
-    "epochs": 10,
+    "epochs": 2,
 
     "_注释_kd_alpha": "软标签权重(0~1)",
     "kd_alpha": 0.7,

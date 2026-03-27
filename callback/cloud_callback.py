@@ -515,3 +515,51 @@ def cloud_infer_callback(task_id, **kwargs):
         'agree_ratio': float(agree_ratio),
         'num_corrected': int(num_corrected),
     }
+
+
+@register_task
+def link11_cloud_direct_infer_callback(task_id, **kwargs):
+    """link11 端→云 直接推理回调"""
+    return cloud_direct_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def link11_cloud_infer_callback(task_id, **kwargs):
+    """link11 端→边→云 协同推理回调（云侧部分）"""
+    return cloud_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def rml2016_cloud_direct_infer_callback(task_id, **kwargs):
+    """rml2016 端→云 直接推理回调"""
+    return cloud_direct_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def rml2016_cloud_infer_callback(task_id, **kwargs):
+    """rml2016 端→边→云 协同推理回调（云侧部分）"""
+    return cloud_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def radar_cloud_direct_infer_callback(task_id, **kwargs):
+    """radar 端→云 直接推理回调"""
+    return cloud_direct_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def radar_cloud_infer_callback(task_id, **kwargs):
+    """radar 端→边→云 协同推理回调（云侧部分）"""
+    return cloud_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def ratr_cloud_direct_infer_callback(task_id, **kwargs):
+    """ratr 端→云 直接推理回调"""
+    return cloud_direct_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def ratr_cloud_infer_callback(task_id, **kwargs):
+    """ratr 端→边→云 协同推理回调（云侧部分）"""
+    return cloud_infer_callback(task_id, **kwargs)

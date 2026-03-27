@@ -583,6 +583,10 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
 
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
     output_dir = f"./tasks/{task_id}/output/edge_kd_1"
 
     # 确定要处理的边和数据路径（优先从 input_data 读取）
@@ -672,7 +676,7 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
             alpha, temperature, epochs, batch_size, learning_rate,
             device, label=f"边{eid}", dataset_type=dataset_type)
 
-        torch.save({
+        save_payload = {
             'model_state_dict': kd_result['best_state'],
             'model_type': student_model_type,
             'num_classes': num_classes,
@@ -680,7 +684,33 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
             'best_test_acc': kd_result['best_acc'],
             'epoch': kd_result['best_epoch'],
             'edge_id': eid,
-        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        }
+
+        if dataset_type == 'ratr' and student_model_type == 'real_resnet7_ratr_cp':
+            try:
+                from utils_refactor.cp_prune import OneShotLocalPruner, PruneConfig, infer_resnet_internal_cfg
+
+                print(f"[边侧 {eid}] (ratr) 开始 CP 剪枝...")
+
+                student.load_state_dict(kd_result['best_state'], strict=True)
+                student.eval()
+
+                pruner = OneShotLocalPruner(PruneConfig(prune_ratio=0.9, min_channels=1))
+                pruned_model, report = pruner.prune_model(student, inplace=False)
+                internal_cfg = infer_resnet_internal_cfg(pruned_model)
+
+                rebuilt = create_model_by_type('real_resnet7_ratr_cp', num_classes, dataset_type, internal_cfg=internal_cfg)
+                rebuilt.load_state_dict(pruned_model.state_dict(), strict=True)
+
+                save_payload['model_state_dict'] = rebuilt.state_dict()
+                save_payload['model_type'] = 'real_resnet7_ratr_cp'
+                save_payload['internal_cfg'] = internal_cfg
+                save_payload['cp_prune_ratio'] = 0.9
+                print(f"[边侧 {eid}] (ratr) 已完成 CP 剪枝: ratio=0.9, layers={len(report)}")
+            except Exception as e:
+                print(f"[警告] (ratr) CP 剪枝失败，将回退保存未剪枝模型: {e}")
+
+        torch.save(save_payload, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
         all_results.append((eid, kd_result))
@@ -782,6 +812,10 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
 
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
     output_dir = f"./tasks/{task_id}/output/edge_kd_2"
 
     # 确定要处理的边和数据路径（优先从 input_data 读取）
@@ -871,7 +905,7 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
             alpha, temperature, epochs, batch_size, learning_rate,
             device, label=f"边{eid}", dataset_type=dataset_type)
 
-        torch.save({
+        save_payload = {
             'model_state_dict': kd_result['best_state'],
             'model_type': student_model_type,
             'num_classes': num_classes,
@@ -879,7 +913,9 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
             'best_test_acc': kd_result['best_acc'],
             'epoch': kd_result['best_epoch'],
             'edge_id': eid,
-        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        }
+
+        torch.save(save_payload, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
         all_results.append((eid, kd_result))
@@ -1025,6 +1061,7 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
         edge_sizes.append(len(X_train))
 
     # 2. 初始化全局模型（从各边 KD 模型聚合）
+    internal_cfg = None
     global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
 
     edge_kd_dir = f"./tasks/{task_id}/output/edge_kd_2"
@@ -1035,15 +1072,25 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     if has_per_edge:
         total_weight = sum(edge_sizes)
         avg_state = None
+        resolved_edge_model_type = edge_model_type
         for i in range(num_edges):
             ckpt = torch.load(per_edge_paths[i], map_location=device)
-            state = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+            if isinstance(ckpt, dict) and ckpt.get('model_type'):
+                resolved_edge_model_type = ckpt.get('model_type')
+                internal_cfg = ckpt.get('internal_cfg')
+            state = ckpt['model_state_dict'] if isinstance(ckpt, dict) and 'model_state_dict' in ckpt else ckpt
             w = edge_sizes[i] / total_weight
             if avg_state is None:
                 avg_state = {k: v.float() * w for k, v in state.items()}
             else:
                 for k in avg_state:
                     avg_state[k] += state[k].float() * w
+
+        if dataset_type == 'ratr' and resolved_edge_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_edge_model_type
         global_model.load_state_dict(avg_state)
         print(f"[模型] 从 {num_edges} 个边侧 KD 模型聚合初始化全局模型")
     elif init_model_path and os.path.exists(init_model_path):
@@ -1074,7 +1121,10 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
 
         # 各边侧本地训练
         for e in range(num_edges):
-            local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+            if dataset_type == 'ratr' and edge_model_type == 'real_resnet7_ratr_cp':
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            else:
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
             local_model.load_state_dict(global_model.state_dict())
             local_model.to(device)
 
@@ -1127,6 +1177,7 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     torch.save({
         'model_state_dict': best_global_state,
         'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
         'num_classes': num_classes,
         'dataset_type': dataset_type,
         'best_avg_acc': best_avg_acc,
@@ -1136,7 +1187,9 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
         torch.save({
             'model_state_dict': edge_states[e],
             'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
             'num_classes': num_classes,
+            'dataset_type': dataset_type,
         }, os.path.join(output_dir, f'edge_{e+1}_model.pth'))
 
     save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
@@ -1268,11 +1321,21 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
         return {'status': 'cached'}
 
     # 1. 初始化全局模型
+    internal_cfg = None
     global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
 
     if init_model_path and os.path.exists(init_model_path):
         checkpoint = torch.load(init_model_path, map_location=device, weights_only=False)
-        if 'model_state_dict' in checkpoint:
+        resolved_model_type = edge_model_type
+        if isinstance(checkpoint, dict) and checkpoint.get('model_type'):
+            resolved_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_model_type
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
             global_model.load_state_dict(checkpoint['model_state_dict'])
         else:
             global_model.load_state_dict(checkpoint)
@@ -1287,6 +1350,7 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     torch.save({
         'model_state_dict': global_model.state_dict(),
         'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
         'num_classes': num_classes,
         'dataset_type': dataset_type,
     }, round0_path)
@@ -1339,6 +1403,7 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
         torch.save({
             'model_state_dict': global_state,
             'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
             'num_classes': num_classes,
             'dataset_type': dataset_type,
         }, round_path)
@@ -1364,6 +1429,7 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     torch.save({
         'model_state_dict': best_global_state,
         'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
         'num_classes': num_classes,
         'dataset_type': dataset_type,
         'best_avg_acc': best_avg_acc,
@@ -1508,7 +1574,12 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
 
         # 加载全局模型
         ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
-        local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+        resolved_model_type = ckpt.get('model_type', edge_model_type) if isinstance(ckpt, dict) else edge_model_type
+        internal_cfg = ckpt.get('internal_cfg') if isinstance(ckpt, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
         local_model.load_state_dict(ckpt['model_state_dict'])
         local_model.to(device)
 
@@ -1524,7 +1595,8 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
         # 保存本轮结果（含 num_samples 和 test_acc，供 server 聚合时使用）
         torch.save({
             'model_state_dict': local_model.state_dict(),
-            'model_type': edge_model_type,
+            'model_type': resolved_model_type,
+            'internal_cfg': internal_cfg,
             'num_classes': num_classes,
             'num_samples': num_samples,
             'test_acc': test_acc,
@@ -1542,7 +1614,8 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
         last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
         torch.save({
             'model_state_dict': last_ckpt['model_state_dict'],
-            'model_type': edge_model_type,
+            'model_type': last_ckpt.get('model_type', edge_model_type),
+            'internal_cfg': last_ckpt.get('internal_cfg', None),
             'num_classes': num_classes,
         }, final_model_path)
 
@@ -1647,7 +1720,12 @@ def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
 
         # 加载全局模型
         ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
-        local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+        resolved_model_type = ckpt.get('model_type', edge_model_type) if isinstance(ckpt, dict) else edge_model_type
+        internal_cfg = ckpt.get('internal_cfg') if isinstance(ckpt, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
         local_model.load_state_dict(ckpt['model_state_dict'])
         local_model.to(device)
 
@@ -1702,3 +1780,315 @@ def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
 def federated_server_callback(task_id, **kwargs):
     """向后兼容：federated_server → federated_cloud"""
     return federated_cloud_callback(task_id, **kwargs)
+
+
+@register_task
+def link11_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
+    """link11 云侧预训练教师模型"""
+    return cloud_pretrain_callback(task_id, config_name=config_name or 'link11_cloud_pretrain', **kwargs)
+
+
+@register_task
+def link11_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 知识蒸馏统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return link11_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return link11_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def link11_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 知识蒸馏 - 边1"""
+    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_edge_kd_1', **kwargs)
+
+
+@register_task
+def link11_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 知识蒸馏 - 边2"""
+    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_edge_kd_2', **kwargs)
+
+
+@register_task
+def link11_federated_train_callback(task_id, config_name=None, **kwargs):
+    """link11 联邦学习训练"""
+    return federated_train_callback(task_id, config_name=config_name or 'link11_federated_train', **kwargs)
+
+
+@register_task
+def link11_federated_cloud_callback(task_id, config_name=None, **kwargs):
+    """link11 联邦学习 - 云侧聚合"""
+    return federated_cloud_callback(task_id, config_name=config_name or 'link11_federated_cloud', **kwargs)
+
+
+@register_task
+def link11_federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 联邦学习 - 边侧统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return link11_federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return link11_federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def link11_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 联邦学习 - 边1"""
+    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_federated_edge_1', **kwargs)
+
+
+@register_task
+def link11_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 联邦学习 - 边2"""
+    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_federated_edge_2', **kwargs)
+
+
+@register_task
+def link11_federated_server_callback(task_id, **kwargs):
+    """link11 向后兼容：federated_server → federated_cloud"""
+    return link11_federated_cloud_callback(task_id, **kwargs)
+
+
+@register_task
+def rml2016_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
+    """rml2016 云侧预训练教师模型"""
+    return cloud_pretrain_callback(task_id, config_name=config_name or 'rml2016_cloud_pretrain', **kwargs)
+
+
+@register_task
+def rml2016_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 知识蒸馏统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return rml2016_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return rml2016_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def rml2016_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 知识蒸馏 - 边1"""
+    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_edge_kd_1', **kwargs)
+
+
+@register_task
+def rml2016_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 知识蒸馏 - 边2"""
+    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_edge_kd_2', **kwargs)
+
+
+@register_task
+def rml2016_federated_train_callback(task_id, config_name=None, **kwargs):
+    """rml2016 联邦学习训练"""
+    return federated_train_callback(task_id, config_name=config_name or 'rml2016_federated_train', **kwargs)
+
+
+@register_task
+def rml2016_federated_cloud_callback(task_id, config_name=None, **kwargs):
+    """rml2016 联邦学习 - 云侧聚合"""
+    return federated_cloud_callback(task_id, config_name=config_name or 'rml2016_federated_cloud', **kwargs)
+
+
+@register_task
+def rml2016_federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 联邦学习 - 边侧统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return rml2016_federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return rml2016_federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def rml2016_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 联邦学习 - 边1"""
+    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_federated_edge_1', **kwargs)
+
+
+@register_task
+def rml2016_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 联邦学习 - 边2"""
+    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_federated_edge_2', **kwargs)
+
+
+@register_task
+def rml2016_federated_server_callback(task_id, **kwargs):
+    """rml2016 向后兼容：federated_server → federated_cloud"""
+    return rml2016_federated_cloud_callback(task_id, **kwargs)
+
+
+@register_task
+def radar_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
+    """radar 云侧预训练教师模型"""
+    return cloud_pretrain_callback(task_id, config_name=config_name or 'radar_cloud_pretrain', **kwargs)
+
+
+@register_task
+def radar_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 知识蒸馏统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return radar_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return radar_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def radar_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 知识蒸馏 - 边1"""
+    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_edge_kd_1', **kwargs)
+
+
+@register_task
+def radar_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 知识蒸馏 - 边2"""
+    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_edge_kd_2', **kwargs)
+
+
+@register_task
+def radar_federated_train_callback(task_id, config_name=None, **kwargs):
+    """radar 联邦学习训练"""
+    return federated_train_callback(task_id, config_name=config_name or 'radar_federated_train', **kwargs)
+
+
+@register_task
+def radar_federated_cloud_callback(task_id, config_name=None, **kwargs):
+    """radar 联邦学习 - 云侧聚合"""
+    return federated_cloud_callback(task_id, config_name=config_name or 'radar_federated_cloud', **kwargs)
+
+
+@register_task
+def radar_federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 联邦学习 - 边侧统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return radar_federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return radar_federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def radar_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 联邦学习 - 边1"""
+    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_federated_edge_1', **kwargs)
+
+
+@register_task
+def radar_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 联邦学习 - 边2"""
+    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_federated_edge_2', **kwargs)
+
+
+@register_task
+def radar_federated_server_callback(task_id, **kwargs):
+    """radar 向后兼容：federated_server → federated_cloud"""
+    return radar_federated_cloud_callback(task_id, **kwargs)
+
+
+@register_task
+def ratr_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
+    """ratr 云侧预训练教师模型"""
+    return cloud_pretrain_callback(task_id, config_name=config_name or 'ratr_cloud_pretrain', **kwargs)
+
+
+@register_task
+def ratr_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 知识蒸馏统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return ratr_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return ratr_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def ratr_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 知识蒸馏 - 边1"""
+    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_edge_kd_1', **kwargs)
+
+
+@register_task
+def ratr_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 知识蒸馏 - 边2"""
+    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_edge_kd_2', **kwargs)
+
+
+@register_task
+def ratr_federated_train_callback(task_id, config_name=None, **kwargs):
+    """ratr 联邦学习训练"""
+    return federated_train_callback(task_id, config_name=config_name or 'ratr_federated_train', **kwargs)
+
+
+@register_task
+def ratr_federated_cloud_callback(task_id, config_name=None, **kwargs):
+    """ratr 联邦学习 - 云侧聚合"""
+    return federated_cloud_callback(task_id, config_name=config_name or 'ratr_federated_cloud', **kwargs)
+
+
+@register_task
+def ratr_federated_edge_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 联邦学习 - 边侧统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    if edge_id == 1:
+        return ratr_federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return ratr_federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
+
+
+@register_task
+def ratr_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 联邦学习 - 边1"""
+    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_federated_edge_1', **kwargs)
+
+
+@register_task
+def ratr_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 联邦学习 - 边2"""
+    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_federated_edge_2', **kwargs)
+
+
+@register_task
+def ratr_federated_server_callback(task_id, **kwargs):
+    """ratr 向后兼容：federated_server → federated_cloud"""
+    return ratr_federated_cloud_callback(task_id, **kwargs)

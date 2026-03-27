@@ -28,6 +28,18 @@ LABEL_MAPS = {
 }
 
 
+def _ensure_numpy_compat_for_old_pickles():
+    """Fix common pickle compatibility issues where pickles reference numpy._core.*."""
+    try:
+        import numpy.core as _np_core
+
+        sys.modules.setdefault("numpy._core", _np_core)
+        sys.modules.setdefault("numpy._core.numeric", _np_core.numeric)
+        sys.modules.setdefault("numpy._core.multiarray", _np_core.multiarray)
+    except Exception:
+        pass
+
+
 def _load_mat_data(file_path, dataset_type):
     try:
         import h5py
@@ -177,6 +189,33 @@ def _parse_pkl_data(data, dataset_type):
     return X_data, y_data
 
 
+def _parse_ratr_pkl(data, file_path: str):
+    if not isinstance(data, dict) or 'data' not in data:
+        raise ValueError(f"RATR pkl 结构异常，期望 dict 且包含 'data' 字段: {file_path}")
+
+    stem = os.path.splitext(os.path.basename(file_path))[0].upper()
+    if stem.startswith('E2D'):
+        label = 0
+    elif stem.startswith('P3C'):
+        label = 1
+    elif stem.startswith('P8A'):
+        label = 2
+    else:
+        raise ValueError(f"RATR 文件名无法推断类别(E2D/P3C/P8A): {file_path}")
+
+    arr = data['data']
+    if not isinstance(arr, np.ndarray):
+        arr = np.asarray(arr)
+    if arr.ndim != 2 or arr.shape[0] != 1024:
+        raise ValueError(f"RATR 'data' 形状异常: {arr.shape}, file={file_path}")
+    if arr.dtype != np.float32:
+        arr = arr.astype(np.float32, copy=False)
+
+    X = arr.T[:, None, :]
+    y = np.full((X.shape[0],), label, dtype=np.int64)
+    return X, y
+
+
 @register_task
 def device_load_callback(task_id, **kwargs):
     """
@@ -236,29 +275,50 @@ def device_load_callback(task_id, **kwargs):
     
     t_load_start = time.time()
     try:
-        # ---- RATR 特殊加载：使用 readdata_ratr.py 解析 proj_test_dataset_pkl ----
         if dataset_type == 'ratr':
-            from utils.readdata_ratr import load_ratr_numpy
+            _ensure_numpy_compat_for_old_pickles()
+            if os.path.isdir(data_path):
+                files = sorted([
+                    os.path.join(data_path, f)
+                    for f in os.listdir(data_path)
+                    if f.lower().endswith('.pkl')
+                ])
+                if not files:
+                    error_msg = f"目录中没有 .pkl 文件: {data_path}"
+                    print(f"[错误] {error_msg}")
+                    return {'status': 'error', 'message': error_msg}
 
-            # num_batches 优先限制样本数
-            max_samples = None
+                if max_files is not None:
+                    files = files[:max_files]
+
+                print(f"[加载] (ratr) 发现 {len(files)} 个文件（目录模式）")
+
+                all_X = []
+                all_y = []
+                for i, fpath in enumerate(files):
+                    with open(fpath, 'rb') as f:
+                        data = pickle.load(f)
+                    X_part, y_part = _parse_ratr_pkl(data, fpath)
+                    all_X.append(np.array(X_part))
+                    all_y.append(np.array(y_part))
+                    if (i + 1) % 10 == 0 or i == len(files) - 1:
+                        print(f"[加载] (ratr) 已加载 {i+1}/{len(files)} 个文件")
+
+                X_data = np.concatenate(all_X, axis=0)
+                y_data = np.concatenate(all_y, axis=0)
+            else:
+                print(f"[加载] (ratr) 正在加载数据文件...")
+                ext = os.path.splitext(data_path)[1].lower()
+                if ext != '.pkl':
+                    raise ValueError(f"RATR 仅支持 .pkl 文件: {ext}")
+                with open(data_path, 'rb') as f:
+                    data = pickle.load(f)
+                X_data, y_data = _parse_ratr_pkl(data, data_path)
+
             if num_batches is not None:
                 max_samples = int(num_batches) * int(batch_size)
-
-            if os.path.isdir(data_path):
-                X_data, y_data = load_ratr_numpy(
-                    data_path,
-                    split='test',
-                    seed=42,
-                    max_samples=max_samples,
-                )
-            else:
-                X_data, y_data = load_ratr_numpy(
-                    data_path,
-                    split='test',
-                    seed=42,
-                    max_samples=max_samples,
-                )
+                X_data = X_data[:max_samples]
+                y_data = y_data[:max_samples]
 
             total_samples = len(X_data)
             print(f"[加载] (ratr) 成功加载 {total_samples} 个样本")
@@ -406,3 +466,27 @@ def device_load_callback(task_id, **kwargs):
     print(f"[统计] 批次数: {result_info['num_batches']}")
     
     return result_info
+
+
+@register_task
+def link11_device_load_callback(task_id, **kwargs):
+    """link11 端侧数据加载回调"""
+    return device_load_callback(task_id, **kwargs)
+
+
+@register_task
+def rml2016_device_load_callback(task_id, **kwargs):
+    """rml2016 端侧数据加载回调"""
+    return device_load_callback(task_id, **kwargs)
+
+
+@register_task
+def radar_device_load_callback(task_id, **kwargs):
+    """radar 端侧数据加载回调"""
+    return device_load_callback(task_id, **kwargs)
+
+
+@register_task
+def ratr_device_load_callback(task_id, **kwargs):
+    """ratr 端侧数据加载回调"""
+    return device_load_callback(task_id, **kwargs)

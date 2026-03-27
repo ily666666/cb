@@ -1102,26 +1102,44 @@ def main():
             return
         
         edge_checkpoint = torch.load(args.edge_model_path, map_location=device, weights_only=False)
-        
-        # 处理不同的checkpoint格式
-        state_dict_to_load = None
-        if isinstance(edge_checkpoint, dict):
-            if 'model_state_dict' in edge_checkpoint:
+
+        ckpt_model_type = edge_checkpoint.get('model_type') if isinstance(edge_checkpoint, dict) else None
+        internal_cfg = edge_checkpoint.get('internal_cfg') if isinstance(edge_checkpoint, dict) else None
+        resolved_edge_model_type = ckpt_model_type or edge_model_name
+
+        if args.dataset_type == 'ratr' and resolved_edge_model_type == 'real_resnet7_ratr_cp':
+            edge_model = create_model_by_type(resolved_edge_model_type, args.num_classes, args.dataset_type, internal_cfg=internal_cfg)
+            edge_model = edge_model.to(device)
+
+            if isinstance(edge_checkpoint, dict) and 'model_state_dict' in edge_checkpoint:
                 state_dict_to_load = edge_checkpoint['model_state_dict']
-                print(f"   检测到checkpoint格式（包含'model_state_dict'键）")
-            elif 'state_dict' in edge_checkpoint:
+            elif isinstance(edge_checkpoint, dict) and 'state_dict' in edge_checkpoint:
                 state_dict_to_load = edge_checkpoint['state_dict']
-                print(f"   检测到checkpoint格式（包含'state_dict'键）")
             else:
-                # 可能是直接保存的state_dict
+                state_dict_to_load = edge_checkpoint
+
+            edge_model.load_state_dict(state_dict_to_load, strict=True)
+            missing_keys, unexpected_keys = [], []
+        else:
+            # 处理不同的checkpoint格式
+            state_dict_to_load = None
+            if isinstance(edge_checkpoint, dict):
+                if 'model_state_dict' in edge_checkpoint:
+                    state_dict_to_load = edge_checkpoint['model_state_dict']
+                    print(f"   检测到checkpoint格式（包含'model_state_dict'键）")
+                elif 'state_dict' in edge_checkpoint:
+                    state_dict_to_load = edge_checkpoint['state_dict']
+                    print(f"   检测到checkpoint格式（包含'state_dict'键）")
+                else:
+                    # 可能是直接保存的state_dict
+                    state_dict_to_load = edge_checkpoint
+                    print(f"   检测到直接保存的state_dict格式")
+            else:
                 state_dict_to_load = edge_checkpoint
                 print(f"   检测到直接保存的state_dict格式")
-        else:
-            state_dict_to_load = edge_checkpoint
-            print(f"   检测到直接保存的state_dict格式")
-        
-        # 加载权重并检查匹配情况
-        missing_keys, unexpected_keys = edge_model.load_state_dict(state_dict_to_load, strict=False)
+            
+            # 加载权重并检查匹配情况
+            missing_keys, unexpected_keys = edge_model.load_state_dict(state_dict_to_load, strict=False)
         
         if missing_keys:
             print(f"[WARNING] 警告: 以下键未加载（{len(missing_keys)}个）:")

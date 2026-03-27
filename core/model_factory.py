@@ -5,7 +5,7 @@
 """
 
 
-def create_model_by_type(model_name, num_classes, dataset_type='ads'):
+def create_model_by_type(model_name, num_classes, dataset_type='ads', internal_cfg=None):
     """
     根据数据集类型和模型名称创建对应的模型实例
 
@@ -97,6 +97,9 @@ def create_model_by_type(model_name, num_classes, dataset_type='ads'):
         elif model_name == 'real_resnet10_ratr':
             from model.real_resnet10_ratr import ResNet10Real
             return ResNet10Real(num_classes=num_classes)
+        elif model_name == 'real_resnet7_ratr_cp':
+            from model.real_resnet7_ratr_cp import ResNet7Real
+            return ResNet7Real(num_classes=num_classes, internal_cfg=internal_cfg)
         else:
             from model.real_resnet101_ratr import ResNet101Real
             return ResNet101Real(num_classes=num_classes)

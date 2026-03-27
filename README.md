@@ -2,7 +2,7 @@
 
 基于 PyTorch 的云边端协同推理与训练框架，采用**任务驱动 + 文件总线**架构，支持雷达/通信信号的分布式识别。
 
-> **自动数据集识别**：系统从 task_id 自动识别数据集（如 `001_COLLAB_link11_test` → `link11`），配置文件命名统一为 `{数据集}_{功能}.json` 格式。`--mode` 和 `--step` 命令无需指定数据集前缀，`--config` 命令需使用带前缀的配置名（如 `--config link11_cloud_pretrain`）。
+> **自动数据集识别**：系统从 task_id 自动识别数据集（如 `001_collab_link11` → `link11`），配置文件命名统一为 `{数据集}_{功能}.json` 格式。`--mode` 和 `--step` 命令无需指定数据集前缀，`--config` 命令需使用带前缀的配置名（如 `--config link11_cloud_pretrain`）。
 
 ## 目录结构
 
@@ -17,9 +17,7 @@ project0210/
 │   ├── edge_callback.py     #   边侧：轻量模型推理 + 置信度筛选
 │   ├── cloud_callback.py    #   云侧：大模型推理（协同/直接两种模式）
 │   ├── train_callback.py    #   训练：预训练、知识蒸馏、联邦学习
-│   ├── link11_*_callback.py #   link11 数据集专用包装（复用通用回调）
-│   ├── rml2016_*_callback.py#   rml2016 数据集专用包装
-│   └── radar_*_callback.py  #   radar 数据集专用包装
+│   └── （各数据集前缀回调函数在以上四个核心文件内显式声明并注册）
 │
 ├── core/                    # 核心模块
 │   └── model_factory.py     #   模型工厂：按名称创建模型实例
@@ -34,21 +32,21 @@ project0210/
 │   └── task_manager.py      #   任务目录管理
 │
 ├── tasks/                   # 任务实例（每个任务一个文件夹）
-│   ├── 001_COLLAB_link11_test/      # link11 协同推理
-│   ├── 002_cloud_only_link11_test/  # link11 仅云推理
-│   ├── 003_edge_only_link11_test/   # link11 仅边推理
+│   ├── 001_collab_link11/           # link11 协同推理
+│   ├── 002_cloud_only_link11/       # link11 仅云推理
+│   ├── 003_edge_only_link11/        # link11 仅边推理
 │   ├── 004_train_link11/            # link11 训练
-│   ├── 005_COLLAB_rml2016_test/     # rml2016 协同推理
-│   ├── 006_cloud_only_rml2016_test/ # rml2016 仅云推理
-│   ├── 007_edge_only_rml2016_test/  # rml2016 仅边推理
-│   ├── 008_COLLAB_radar_test/       # radar 协同推理
-│   ├── 009_cloud_only_radar_test/   # radar 仅云推理
-│   ├── 010_edge_only_radar_test/    # radar 仅边推理
+│   ├── 005_collab_rml2016/          # rml2016 协同推理
+│   ├── 006_cloud_only_rml2016/      # rml2016 仅云推理
+│   ├── 007_edge_only_rml2016/       # rml2016 仅边推理
+│   ├── 008_collab_radar/            # radar 协同推理
+│   ├── 009_cloud_only_radar/        # radar 仅云推理
+│   ├── 010_edge_only_radar/         # radar 仅边推理
 │   ├── 011_train_rml2016/           # rml2016 训练
 │   ├── 012_train_radar/             # radar 训练
-│   ├── 013_COLLAB_ratr_test/        # ratr 协同推理
-│   ├── 014_cloud_only_ratr_test/    # ratr 仅云推理
-│   ├── 015_edge_only_ratr_test/     # ratr 仅边推理
+│   ├── 013_collab_ratr/             # ratr 协同推理
+│   ├── 014_cloud_only_ratr/         # ratr 仅云推理
+│   ├── 015_edge_only_ratr/          # ratr 仅边推理
 │   └── 016_train_ratr/              # ratr 训练
 │
 ├── cloud_pth/               # 云侧模型权重
@@ -231,7 +229,7 @@ python run/prepare_data_splits.py --dataset_type link11 --num_edges 2 --output_d
 python run_task.py --mode full_train --task_id 004_train_link11
 
 # 5. 跑推理
-python run_task.py --mode device_to_edge_to_cloud --task_id 001_COLLAB_link11_test
+python run_task.py --mode device_to_edge_to_cloud --task_id 001_collab_link11
 ```
 
 #### rml2016 数据集
@@ -250,7 +248,7 @@ python run/prepare_data_splits.py --dataset_type rml2016 --num_edges 2 --output_
 python run_task.py --mode full_train --task_id 011_train_rml2016
 
 # 5. 跑推理
-python run_task.py --mode device_to_edge_to_cloud --task_id 005_COLLAB_rml2016_test
+python run_task.py --mode device_to_edge_to_cloud --task_id 005_collab_rml2016
 ```
 
 #### radar 数据集
@@ -271,7 +269,7 @@ python run/prepare_data_splits.py --dataset_type radar --num_edges 2 --output_di
 python run_task.py --mode full_train --task_id 012_train_radar
 
 # 5. 跑推理
-python run_task.py --mode device_to_edge_to_cloud --task_id 008_COLLAB_radar_test
+python run_task.py --mode device_to_edge_to_cloud --task_id 008_collab_radar
 ```
 
 #### ratr 数据集
@@ -294,7 +292,7 @@ python run/prepare_data_splits.py --dataset_type ratr --num_edges 2 --output_dir
 python run_task.py --mode full_train --task_id 016_train_ratr
 
 # 4. 跑推理（协同）
-python run_task.py --mode device_to_edge_to_cloud --task_id 013_COLLAB_ratr_test
+python run_task.py --mode device_to_edge_to_cloud --task_id 013_collab_ratr
 ```
 
 > **注意**：每个数据集中，步骤 1（推理测试数据）和步骤 2-3（训练数据）是独立的。只跑推理只需完成步骤 1，只跑训练只需完成步骤 2-3。radar 数据集同时保留了 MATLAB 版本（.m）和 Python 版本（.py），功能等效，任选其一即可。
@@ -379,7 +377,7 @@ device_load → edge_infer → cloud_infer
 
 **运行命令**：
 ```bash
-python run_task.py --mode device_to_edge_to_cloud --task_id 001_COLLAB_link11_test
+python run_task.py --mode device_to_edge_to_cloud --task_id 001_collab_link11
 ```
 
 ### 模式 2：端 → 云（直接推理）
@@ -394,7 +392,7 @@ device_load → cloud_direct_infer
 
 **运行命令**：
 ```bash
-python run_task.py --mode device_to_cloud --task_id 002_cloud_only_link11_test
+python run_task.py --mode device_to_cloud --task_id 002_cloud_only_link11
 ```
 
 ### 模式 3：端 → 边（仅边侧推理）
@@ -409,7 +407,7 @@ device_load → edge_infer
 
 **运行命令**：
 ```bash
-python run_task.py --mode device_to_edge --task_id 003_edge_only_link11_test
+python run_task.py --mode device_to_edge --task_id 003_edge_only_link11
 ```
 
 ---
@@ -743,48 +741,48 @@ python run_task.py --step <步骤名> --task_id <任务ID> [--edge_id N] [--summ
 
 | | 命令 |
 |---|------|
-| **单机** | `python run_task.py --mode device_to_cloud --task_id 002_cloud_only_link11_test` |
+| **单机** | `python run_task.py --mode device_to_cloud --task_id 002_cloud_only_link11` |
 
 ```bash
 # 多机拆分（2 步）：
 # [端侧机器] 加载数据
-python run_task.py --step device_load --task_id 002_cloud_only_link11_test
-# >>> 同步 tasks/002_cloud_only_link11_test/output/device_load/ 到云侧机器 <<<
+python run_task.py --step device_load --task_id 002_cloud_only_link11
+# >>> 同步 tasks/002_cloud_only_link11/output/device_load/ 到云侧机器 <<<
 # [云侧机器] 推理（最后一步加 --summary 查看全局耗时汇总）
-python run_task.py --step cloud_direct_infer --task_id 002_cloud_only_link11_test --summary
+python run_task.py --step cloud_direct_infer --task_id 002_cloud_only_link11 --summary
 ```
 
 #### 2. 仅边侧推理 (`device_to_edge`)
 
 | | 命令 |
 |---|------|
-| **单机** | `python run_task.py --mode device_to_edge --task_id 003_edge_only_link11_test` |
+| **单机** | `python run_task.py --mode device_to_edge --task_id 003_edge_only_link11` |
 
 ```bash
 # 多机拆分（2 步）：
 # [端侧机器]
-python run_task.py --step device_load --task_id 003_edge_only_link11_test
+python run_task.py --step device_load --task_id 003_edge_only_link11
 # >>> 同步 output/device_load/ 到边侧机器 <<<
 # [边侧机器]（最后一步加 --summary）
-python run_task.py --step edge_infer --task_id 003_edge_only_link11_test --summary
+python run_task.py --step edge_infer --task_id 003_edge_only_link11 --summary
 ```
 
 #### 3. 云边协同推理 (`device_to_edge_to_cloud`)
 
 | | 命令 |
 |---|------|
-| **单机** | `python run_task.py --mode device_to_edge_to_cloud --task_id 001_COLLAB_link11_test` |
+| **单机** | `python run_task.py --mode device_to_edge_to_cloud --task_id 001_collab_link11` |
 
 ```bash
 # 多机拆分（3 步）：
 # [端侧机器]
-python run_task.py --step device_load --task_id 001_COLLAB_link11_test
+python run_task.py --step device_load --task_id 001_collab_link11
 # >>> 同步 output/device_load/ 到边侧机器 <<<
 # [边侧机器]
-python run_task.py --step edge_infer --task_id 001_COLLAB_link11_test
+python run_task.py --step edge_infer --task_id 001_collab_link11
 # >>> 同步 output/edge_infer/ 到云侧机器 <<<
 # [云侧机器]（最后一步加 --summary）
-python run_task.py --step cloud_infer --task_id 001_COLLAB_link11_test --summary
+python run_task.py --step cloud_infer --task_id 001_collab_link11 --summary
 ```
 
 ### 训练任务：单机 vs 多机命令对照
@@ -1016,7 +1014,7 @@ output/federated_train/
   推理+开销+传输: 30.90s
   推理+传输: 14.90s
   去除开销后: 17.70s  (总耗时 33.70s - 加载热身 16.00s)
-  结果目录: ./tasks/001_COLLAB_link11_test/result/
+  结果目录: ./tasks/001_collab_link11/result/
 ============================================================
 ```
 
@@ -1026,7 +1024,7 @@ output/federated_train/
 
 ```bash
 # 删除边侧推理缓存
-rm -rf ./tasks/003_edge_only_link11_test/output/edge_infer
+rm -rf ./tasks/003_edge_only_link11/output/edge_infer
 
 # 删除整个任务的所有缓存
 rm -rf ./tasks/my_task/output ./tasks/my_task/result
@@ -1067,9 +1065,9 @@ rm -rf ./tasks/my_task/output ./tasks/my_task/result
 
 | 场景 | link11 | rml2016 | radar |
 |------|--------|---------|-------|
-| 云边协同推理 | `python run_task.py --mode device_to_edge_to_cloud --task_id 001_COLLAB_link11_test` | `python run_task.py --mode device_to_edge_to_cloud --task_id 005_COLLAB_rml2016_test` | `python run_task.py --mode device_to_edge_to_cloud --task_id 008_COLLAB_radar_test` |
-| 仅云侧推理 | `python run_task.py --mode device_to_cloud --task_id 002_cloud_only_link11_test` | `python run_task.py --mode device_to_cloud --task_id 006_cloud_only_rml2016_test` | `python run_task.py --mode device_to_cloud --task_id 009_cloud_only_radar_test` |
-| 仅边侧推理 | `python run_task.py --mode device_to_edge --task_id 003_edge_only_link11_test` | `python run_task.py --mode device_to_edge --task_id 007_edge_only_rml2016_test` | `python run_task.py --mode device_to_edge --task_id 010_edge_only_radar_test` |
+| 云边协同推理 | `python run_task.py --mode device_to_edge_to_cloud --task_id 001_collab_link11` | `python run_task.py --mode device_to_edge_to_cloud --task_id 005_collab_rml2016` | `python run_task.py --mode device_to_edge_to_cloud --task_id 008_collab_radar` |
+| 仅云侧推理 | `python run_task.py --mode device_to_cloud --task_id 002_cloud_only_link11` | `python run_task.py --mode device_to_cloud --task_id 006_cloud_only_rml2016` | `python run_task.py --mode device_to_cloud --task_id 009_cloud_only_radar` |
+| 仅边侧推理 | `python run_task.py --mode device_to_edge --task_id 003_edge_only_link11` | `python run_task.py --mode device_to_edge --task_id 007_edge_only_rml2016` | `python run_task.py --mode device_to_edge --task_id 010_edge_only_radar` |
 
 #### 训练命令
 
@@ -1092,16 +1090,16 @@ rm -rf ./tasks/my_task/output ./tasks/my_task/result
 
 | 任务ID | 数据集 | 用途 |
 |--------|--------|------|
-| `001_COLLAB_link11_test` | link11 | 协同推理 |
-| `002_cloud_only_link11_test` | link11 | 仅云推理 |
-| `003_edge_only_link11_test` | link11 | 仅边推理 |
+| `001_collab_link11` | link11 | 协同推理 |
+| `002_cloud_only_link11` | link11 | 仅云推理 |
+| `003_edge_only_link11` | link11 | 仅边推理 |
 | `004_train_link11` | link11 | 训练 |
-| `005_COLLAB_rml2016_test` | rml2016 | 协同推理 |
-| `006_cloud_only_rml2016_test` | rml2016 | 仅云推理 |
-| `007_edge_only_rml2016_test` | rml2016 | 仅边推理 |
-| `008_COLLAB_radar_test` | radar | 协同推理 |
-| `009_cloud_only_radar_test` | radar | 仅云推理 |
-| `010_edge_only_radar_test` | radar | 仅边推理 |
+| `005_collab_rml2016` | rml2016 | 协同推理 |
+| `006_cloud_only_rml2016` | rml2016 | 仅云推理 |
+| `007_edge_only_rml2016` | rml2016 | 仅边推理 |
+| `008_collab_radar` | radar | 协同推理 |
+| `009_cloud_only_radar` | radar | 仅云推理 |
+| `010_edge_only_radar` | radar | 仅边推理 |
 | `011_train_rml2016` | rml2016 | 训练 |
 | `012_train_radar` | radar | 训练 |
 
@@ -1111,22 +1109,22 @@ rm -rf ./tasks/my_task/output ./tasks/my_task/result
 
 | 场景 | link11 task_id | rml2016 task_id | radar task_id |
 |------|---------------|-----------------|---------------|
-| 协同推理 | `001_COLLAB_link11_test` | `005_COLLAB_rml2016_test` | `008_COLLAB_radar_test` |
-| 仅云推理 | `002_cloud_only_link11_test` | `006_cloud_only_rml2016_test` | `009_cloud_only_radar_test` |
-| 仅边推理 | `003_edge_only_link11_test` | `007_edge_only_rml2016_test` | `010_edge_only_radar_test` |
+| 协同推理 | `001_collab_link11` | `005_collab_rml2016` | `008_collab_radar` |
+| 仅云推理 | `002_cloud_only_link11` | `006_cloud_only_rml2016` | `009_cloud_only_radar` |
+| 仅边推理 | `003_edge_only_link11` | `007_edge_only_rml2016` | `010_edge_only_radar` |
 | 训练 | `004_train_link11` | `011_train_rml2016` | `012_train_radar` |
 
 #### 推理（以 link11 为例，替换 task_id 即可换数据集）
 
 | 场景 | 步骤 | 机器 | 命令 | 完成后同步 |
 |------|------|------|------|-----------|
-| **云边协同** | ① | 端侧 | `python run_task.py --step device_load --task_id 001_COLLAB_link11_test` | `output/device_load/` → 边侧 |
-| | ② | 边侧 | `python run_task.py --step edge_infer --task_id 001_COLLAB_link11_test` | `output/edge_infer/` → 云侧 |
-| | ③ | 云侧 | `python run_task.py --step cloud_infer --task_id 001_COLLAB_link11_test --summary` | — |
-| **仅云侧** | ① | 端侧 | `python run_task.py --step device_load --task_id 002_cloud_only_link11_test` | `output/device_load/` → 云侧 |
-| | ② | 云侧 | `python run_task.py --step cloud_direct_infer --task_id 002_cloud_only_link11_test --summary` | — |
-| **仅边侧** | ① | 端侧 | `python run_task.py --step device_load --task_id 003_edge_only_link11_test` | `output/device_load/` → 边侧 |
-| | ② | 边侧 | `python run_task.py --step edge_infer --task_id 003_edge_only_link11_test --summary` | — |
+| **云边协同** | ① | 端侧 | `python run_task.py --step device_load --task_id 001_collab_link11` | `output/device_load/` → 边侧 |
+| | ② | 边侧 | `python run_task.py --step edge_infer --task_id 001_collab_link11` | `output/edge_infer/` → 云侧 |
+| | ③ | 云侧 | `python run_task.py --step cloud_infer --task_id 001_collab_link11 --summary` | — |
+| **仅云侧** | ① | 端侧 | `python run_task.py --step device_load --task_id 002_cloud_only_link11` | `output/device_load/` → 云侧 |
+| | ② | 云侧 | `python run_task.py --step cloud_direct_infer --task_id 002_cloud_only_link11 --summary` | — |
+| **仅边侧** | ① | 端侧 | `python run_task.py --step device_load --task_id 003_edge_only_link11` | `output/device_load/` → 边侧 |
+| | ② | 边侧 | `python run_task.py --step edge_infer --task_id 003_edge_only_link11 --summary` | — |
 
 #### 训练（以 link11 为例，替换 task_id 即可换数据集）
 

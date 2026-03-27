@@ -16,7 +16,7 @@
     "dataset_type": "ratr",
 
     "_注释_edge_model_type": "边侧模型类型",
-    "edge_model_type": "real_resnet10_ratr",
+    "edge_model_type": "real_resnet7_ratr_cp",
 
     "_注释_num_classes": "分类数",
     "num_classes": 3,

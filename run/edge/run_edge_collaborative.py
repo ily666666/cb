@@ -238,14 +238,29 @@ def run_async_collaborative_edge(args):
         with open(args.edge_model_path, 'rb') as f:
             checkpoint = CPU_Unpickler(f).load()
     
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        edge_model.load_state_dict(checkpoint['model_state_dict'])
-    elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
-        edge_model.load_state_dict(checkpoint['state_dict'])
-    elif isinstance(checkpoint, dict) and 'model' in checkpoint:
-        edge_model.load_state_dict(checkpoint['model'])
+    ckpt_model_type = checkpoint.get('model_type') if isinstance(checkpoint, dict) else None
+    internal_cfg = checkpoint.get('internal_cfg') if isinstance(checkpoint, dict) else None
+    resolved_model_type = ckpt_model_type or edge_model_type
+
+    if args.dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+        edge_model = create_model_by_type(resolved_model_type, args.num_classes, args.dataset_type, internal_cfg=internal_cfg)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            edge_model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+        elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            edge_model.load_state_dict(checkpoint['state_dict'], strict=True)
+        elif isinstance(checkpoint, dict) and 'model' in checkpoint:
+            edge_model.load_state_dict(checkpoint['model'], strict=True)
+        else:
+            edge_model.load_state_dict(checkpoint, strict=True)
     else:
-        edge_model.load_state_dict(checkpoint)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            edge_model.load_state_dict(checkpoint['model_state_dict'])
+        elif isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+            edge_model.load_state_dict(checkpoint['state_dict'])
+        elif isinstance(checkpoint, dict) and 'model' in checkpoint:
+            edge_model.load_state_dict(checkpoint['model'])
+        else:
+            edge_model.load_state_dict(checkpoint)
     
     edge_model = edge_model.to(device)
     edge_model.eval()

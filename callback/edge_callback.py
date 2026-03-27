@@ -279,20 +279,32 @@ def edge_infer_callback(task_id, **kwargs):
     print(f"[模型] 正在加载边侧模型...")
     t_model_load_start = time.time()
     try:
-        model = create_model_by_type(model_type, num_classes, dataset_type)
-        
-        # 加载权重
         if os.path.exists(model_path):
-            checkpoint = torch.load(model_path, map_location=device)
-            if 'model_state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['model_state_dict'])
-            else:
-                model.load_state_dict(checkpoint)
-            print(f"[模型] 成功加载模型权重")
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
         else:
             error_msg = f"模型文件不存在: {model_path}"
             print(f"[错误] {error_msg}")
             return {'status': 'error', 'message': error_msg}
+
+        ckpt_model_type = None
+        internal_cfg = None
+        state_dict = None
+        if isinstance(checkpoint, dict):
+            ckpt_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+            state_dict = checkpoint.get('model_state_dict')
+
+        if state_dict is None:
+            state_dict = checkpoint
+
+        resolved_model_type = ckpt_model_type or model_type
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+            model.load_state_dict(state_dict)
+        print(f"[模型] 成功加载模型权重")
         
     except Exception as e:
         error_msg = f"加载模型失败: {str(e)}"
@@ -447,3 +459,27 @@ def edge_infer_callback(task_id, **kwargs):
     print(f"[完成] 边侧推理完成")
     
     return result_info
+
+
+@register_task
+def link11_edge_infer_callback(task_id, **kwargs):
+    """link11 边侧推理回调"""
+    return edge_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def rml2016_edge_infer_callback(task_id, **kwargs):
+    """rml2016 边侧推理回调"""
+    return edge_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def radar_edge_infer_callback(task_id, **kwargs):
+    """radar 边侧推理回调"""
+    return edge_infer_callback(task_id, **kwargs)
+
+
+@register_task
+def ratr_edge_infer_callback(task_id, **kwargs):
+    """ratr 边侧推理回调"""
+    return edge_infer_callback(task_id, **kwargs)

@@ -26,12 +26,6 @@ import re
 from callback.registry import execute_task
 # 导入 callback 模块以触发 @register_task 装饰器注册
 from callback import device_callback, edge_callback, cloud_callback, train_callback
-from callback import (
-    link11_device_callback, link11_edge_callback, link11_cloud_callback, link11_train_callback,
-    rml2016_device_callback, rml2016_edge_callback, rml2016_cloud_callback, rml2016_train_callback,
-    radar_device_callback, radar_edge_callback, radar_cloud_callback, radar_train_callback,
-    ratr_device_callback, ratr_edge_callback, ratr_cloud_callback, ratr_train_callback,
-)
 from datetime import datetime
 from config_refactor import PIPELINE_MODES, SUPPORTED_TASKS
 
