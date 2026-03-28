@@ -100,6 +100,63 @@ PIPELINE_MODES = {
     'full_train': ['cloud_pretrain', 'edge_kd', 'federated_train'],
     'full_pipeline': ['cloud_pretrain', 'edge_kd', 'federated_train',
                       'device_load', 'edge_infer', 'cloud_infer'],
+
+    # ==================== 数据集专用流水线（严格走 {ds}_ 回调） ====================
+    # link11
+    'link11_device_to_cloud': ['link11_device_load', 'link11_cloud_direct_infer'],
+    'link11_device_to_edge': ['link11_device_load', 'link11_edge_infer'],
+    'link11_device_to_edge_to_cloud': ['link11_device_load', 'link11_edge_infer', 'link11_cloud_infer'],
+    'link11_pretrain': ['link11_cloud_pretrain'],
+    'link11_knowledge_distillation': ['link11_edge_kd'],
+    'link11_federated_learning': ['link11_federated_train'],
+    'link11_federated_cloud': ['link11_federated_cloud'],
+    'link11_federated_edge': ['link11_federated_edge'],
+    'link11_federated_server': ['link11_federated_cloud'],
+    'link11_full_train': ['link11_cloud_pretrain', 'link11_edge_kd', 'link11_federated_train'],
+    'link11_full_pipeline': ['link11_cloud_pretrain', 'link11_edge_kd', 'link11_federated_train',
+                             'link11_device_load', 'link11_edge_infer', 'link11_cloud_infer'],
+
+    # rml2016
+    'rml2016_device_to_cloud': ['rml2016_device_load', 'rml2016_cloud_direct_infer'],
+    'rml2016_device_to_edge': ['rml2016_device_load', 'rml2016_edge_infer'],
+    'rml2016_device_to_edge_to_cloud': ['rml2016_device_load', 'rml2016_edge_infer', 'rml2016_cloud_infer'],
+    'rml2016_pretrain': ['rml2016_cloud_pretrain'],
+    'rml2016_knowledge_distillation': ['rml2016_edge_kd'],
+    'rml2016_federated_learning': ['rml2016_federated_train'],
+    'rml2016_federated_cloud': ['rml2016_federated_cloud'],
+    'rml2016_federated_edge': ['rml2016_federated_edge'],
+    'rml2016_federated_server': ['rml2016_federated_cloud'],
+    'rml2016_full_train': ['rml2016_cloud_pretrain', 'rml2016_edge_kd', 'rml2016_federated_train'],
+    'rml2016_full_pipeline': ['rml2016_cloud_pretrain', 'rml2016_edge_kd', 'rml2016_federated_train',
+                              'rml2016_device_load', 'rml2016_edge_infer', 'rml2016_cloud_infer'],
+
+    # radar
+    'radar_device_to_cloud': ['radar_device_load', 'radar_cloud_direct_infer'],
+    'radar_device_to_edge': ['radar_device_load', 'radar_edge_infer'],
+    'radar_device_to_edge_to_cloud': ['radar_device_load', 'radar_edge_infer', 'radar_cloud_infer'],
+    'radar_pretrain': ['radar_cloud_pretrain'],
+    'radar_knowledge_distillation': ['radar_edge_kd'],
+    'radar_federated_learning': ['radar_federated_train'],
+    'radar_federated_cloud': ['radar_federated_cloud'],
+    'radar_federated_edge': ['radar_federated_edge'],
+    'radar_federated_server': ['radar_federated_cloud'],
+    'radar_full_train': ['radar_cloud_pretrain', 'radar_edge_kd', 'radar_federated_train'],
+    'radar_full_pipeline': ['radar_cloud_pretrain', 'radar_edge_kd', 'radar_federated_train',
+                            'radar_device_load', 'radar_edge_infer', 'radar_cloud_infer'],
+
+    # ratr
+    'ratr_device_to_cloud': ['ratr_device_load', 'ratr_cloud_direct_infer'],
+    'ratr_device_to_edge': ['ratr_device_load', 'ratr_edge_infer'],
+    'ratr_device_to_edge_to_cloud': ['ratr_device_load', 'ratr_edge_infer', 'ratr_cloud_infer'],
+    'ratr_pretrain': ['ratr_cloud_pretrain'],
+    'ratr_knowledge_distillation': ['ratr_edge_kd'],
+    'ratr_federated_learning': ['ratr_federated_train'],
+    'ratr_federated_cloud': ['ratr_federated_cloud'],
+    'ratr_federated_edge': ['ratr_federated_edge'],
+    'ratr_federated_server': ['ratr_federated_cloud'],
+    'ratr_full_train': ['ratr_cloud_pretrain', 'ratr_edge_kd', 'ratr_federated_train'],
+    'ratr_full_pipeline': ['ratr_cloud_pretrain', 'ratr_edge_kd', 'ratr_federated_train',
+                           'ratr_device_load', 'ratr_edge_infer', 'ratr_cloud_infer'],
 }
 
 # 兼容旧名称
