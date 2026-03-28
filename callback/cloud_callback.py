@@ -16,7 +16,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
-from config_refactor import get_dataset_from_task_id
+from config_refactor import TASKS_ROOT
 from utils_refactor import (
     load_json, save_json, load_pickle, save_numpy, save_pickle,
     check_parameters, load_from_output, check_output_exists,
@@ -210,8 +210,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    ds = get_dataset_from_task_id(task_id)
-    config_path = f"./tasks/{task_id}/input/{ds}_cloud_infer.json"
+    config_path = f"{TASKS_ROOT}/{task_id}/input/cloud_direct_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     result, config = check_parameters(config_path, param_list)
 
@@ -229,7 +228,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
     # 2. 缓存检查
     if check_output_exists(task_id, 'cloud_direct_infer', 'cloud_predictions.npy'):
         print(f"[跳过] 云侧推理结果已存在")
-        cloud_predictions = np.load(f"./tasks/{task_id}/output/cloud_direct_infer/cloud_predictions.npy")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/cloud_direct_infer/cloud_predictions.npy")
         return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
 
     # 3. 从 device_load 加载全部数据
@@ -253,7 +252,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
     bandwidth = config.get('simulate_bandwidth_mbps', None)
     transfer_info = {'transfer_time': 0}
     if bandwidth:
-        input_file_path = f"./tasks/{task_id}/output/{input_source}/{input_file}"
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
         transfer_info = simulate_transfer(input_file_path, bandwidth)
 
     # 4. 加载模型
@@ -274,7 +273,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
     print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
 
     # 6. 保存结果
-    output_dir = f"./tasks/{task_id}/output/cloud_direct_infer"
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/cloud_direct_infer"
     os.makedirs(output_dir, exist_ok=True)
     save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), predictions)
     save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), confidences)
@@ -290,7 +289,7 @@ def cloud_direct_infer_callback(task_id, **kwargs):
     }, field_overrides={'transfer_time': '端侧→云侧 数据传输耗时（模拟带宽限速）'})
 
     # 7. 生成报告
-    result_dir = f"./tasks/{task_id}/result/cloud_direct_infer"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/cloud_direct_infer"
     os.makedirs(result_dir, exist_ok=True)
 
     timing_items = [
@@ -345,8 +344,7 @@ def cloud_infer_callback(task_id, **kwargs):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    ds = get_dataset_from_task_id(task_id)
-    config_path = f"./tasks/{task_id}/input/{ds}_cloud_infer.json"
+    config_path = f"{TASKS_ROOT}/{task_id}/input/cloud_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
     result, config = check_parameters(config_path, param_list)
 
@@ -364,7 +362,7 @@ def cloud_infer_callback(task_id, **kwargs):
     # 2. 缓存检查
     if check_output_exists(task_id, 'cloud_infer', 'cloud_predictions.npy'):
         print(f"[跳过] 云侧推理结果已存在")
-        cloud_predictions = np.load(f"./tasks/{task_id}/output/cloud_infer/cloud_predictions.npy")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/cloud_infer/cloud_predictions.npy")
         return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
 
     # 3. 加载低置信度样本
@@ -395,7 +393,7 @@ def cloud_infer_callback(task_id, **kwargs):
     bandwidth = config.get('simulate_bandwidth_mbps', None)
     transfer_info = {'transfer_time': 0}
     if bandwidth:
-        input_file_path = f"./tasks/{task_id}/output/{input_source}/{input_file}"
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
         transfer_info = simulate_transfer(input_file_path, bandwidth)
 
     # 4. 加载模型
@@ -428,7 +426,7 @@ def cloud_infer_callback(task_id, **kwargs):
     print(f"[修正] 云侧修正样本数: {num_corrected}")
 
     # 7. 保存中间结果
-    output_dir = f"./tasks/{task_id}/output/cloud_infer"
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/cloud_infer"
     os.makedirs(output_dir, exist_ok=True)
     save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), cloud_predictions)
     save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), cloud_confidences)
@@ -444,7 +442,7 @@ def cloud_infer_callback(task_id, **kwargs):
     }, field_overrides={'transfer_time': '边侧→云侧 低置信度样本传输耗时（模拟带宽限速）'})
 
     # 8. 生成云侧报告
-    result_dir = f"./tasks/{task_id}/result/cloud_infer"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/cloud_infer"
     os.makedirs(result_dir, exist_ok=True)
 
     timing_items = [
@@ -470,9 +468,9 @@ def cloud_infer_callback(task_id, **kwargs):
 
     # 9. 合并边侧+云侧结果生成最终报告
     try:
-        edge_predictions_all = np.load(f"./tasks/{task_id}/output/edge_infer/predictions.npy")
-        edge_corrects = np.load(f"./tasks/{task_id}/output/edge_infer/corrects.npy")
-        edge_confidences = np.load(f"./tasks/{task_id}/output/edge_infer/confidences.npy")
+        edge_predictions_all = np.load(f"{TASKS_ROOT}/{task_id}/output/edge_infer/predictions.npy")
+        edge_corrects = np.load(f"{TASKS_ROOT}/{task_id}/output/edge_infer/corrects.npy")
+        edge_confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/edge_infer/confidences.npy")
 
         device_data = load_from_output(task_id, 'device_load', 'data_batch.pkl')
         y_true = device_data['y']
@@ -520,46 +518,1017 @@ def cloud_infer_callback(task_id, **kwargs):
 @register_task
 def link11_cloud_direct_infer_callback(task_id, **kwargs):
     """link11 端→云 直接推理回调"""
-    return cloud_direct_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→云 直接推理")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/link11_cloud_direct_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'link11_cloud_direct_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/link11_cloud_direct_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 device_load 加载全部数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('file_name', 'data_batch.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载数据失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+
+    accuracy = corrects.mean()
+    print(f"[结果] 云侧直接推理准确率: {accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_cloud_direct_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→云侧 数据传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_cloud_direct_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧直接推理报告', [
+        ('配置信息', [
+            ('模型类型', model_type),
+            ('数据集类型', dataset_type),
+            ('批次大小', batch_size),
+        ]),
+        ('推理结果', [
+            ('总样本数', len(predictions)),
+            ('整体准确率', f"{accuracy*100:.2f}%"),
+            ('平均置信度', f"{confidences.mean():.4f}"),
+            ('最低置信度', f"{confidences.min():.4f}"),
+        ]),
+    ])
+
+    print(f"[完成] 云侧直接推理完成")
+    return {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'avg_confidence': float(confidences.mean()),
+    }
 
 
 @register_task
 def link11_cloud_infer_callback(task_id, **kwargs):
     """link11 端→边→云 协同推理回调（云侧部分）"""
-    return cloud_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→边→云 协同推理（云侧部分）")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/link11_cloud_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'link11_cloud_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/link11_cloud_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 edge_infer 加载低置信度样本...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('signals_file', 'low_conf_signals.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        low_conf_data = load_from_output(task_id, input_source, input_file)
+        low_conf_X = low_conf_data['X']
+        low_conf_y = low_conf_data['y']
+        low_conf_indices = low_conf_data['indices']
+        dataset_type = low_conf_data['dataset_type']
+        edge_predictions = low_conf_data['predictions']
+
+        print(f"[加载] 成功加载 {len(low_conf_X)} 个低置信度样本")
+        if len(low_conf_X) == 0:
+            print(f"[跳过] 没有低置信度样本")
+            return {'status': 'skipped', 'cloud_samples': 0, 'message': '没有低置信度样本'}
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载低置信度样本失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    cloud_predictions, cloud_confidences, cloud_corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, low_conf_X, low_conf_y, batch_size, device, dataset_type=dataset_type
+    )
+    cloud_accuracy = cloud_corrects.mean()
+    print(f"[结果] 云侧准确率: {cloud_accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    agree_mask = (edge_predictions == cloud_predictions)
+    num_agree = agree_mask.sum()
+    agree_ratio = num_agree / len(edge_predictions) * 100
+
+    edge_wrong = (edge_predictions != low_conf_y)
+    corrected = edge_wrong & cloud_corrects.astype(bool)
+    num_corrected = corrected.sum()
+
+    print(f"[对比] 边云预测一致: {num_agree} ({agree_ratio:.1f}%)")
+    print(f"[修正] 云侧修正样本数: {num_corrected}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_cloud_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), cloud_predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), cloud_confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), cloud_corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '边侧→云侧 低置信度样本传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_cloud_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧推理报告', [
+        ('配置信息', [('模型类型', model_type), ('数据集类型', dataset_type)]),
+        ('推理结果', [
+            ('低置信度样本数', len(cloud_predictions)),
+            ('云侧准确率', f"{cloud_accuracy*100:.2f}%"),
+        ]),
+        ('边云对比', [
+            ('预测一致样本数', f"{num_agree} ({agree_ratio:.1f}%)"),
+            ('云侧修正样本数', num_corrected),
+        ]),
+    ])
+
+    try:
+        edge_predictions_all = np.load(f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer/predictions.npy")
+        edge_corrects = np.load(f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer/corrects.npy")
+        edge_confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer/confidences.npy")
+
+        device_data = load_from_output(task_id, 'link11_device_load', 'data_batch.pkl')
+        y_true = device_data['y']
+
+        final_predictions = edge_predictions_all.copy()
+        final_predictions[low_conf_indices] = cloud_predictions
+
+        edge_only_accuracy = edge_corrects.mean()
+        final_accuracy = (final_predictions == y_true).mean()
+
+        print(f"[最终] 边侧单独准确率: {edge_only_accuracy*100:.2f}%")
+        print(f"[最终] 边云协同准确率: {final_accuracy*100:.2f}%")
+        print(f"[最终] 准确率提升: {(final_accuracy-edge_only_accuracy)*100:+.2f}%")
+
+        _generate_report(os.path.join(result_dir, 'final_report.txt'), '边云协同推理最终报告', [
+            ('整体统计', [
+                ('总样本数', len(y_true)),
+                ('边侧处理样本', len(edge_predictions_all) - len(cloud_predictions)),
+                ('云侧处理样本', len(cloud_predictions)),
+                ('云侧调用率', f"{len(cloud_predictions)/len(y_true)*100:.1f}%"),
+            ]),
+            ('准确率对比', [
+                ('边侧单独准确率', f"{edge_only_accuracy*100:.2f}%"),
+                ('边云协同准确率', f"{final_accuracy*100:.2f}%"),
+                ('准确率提升', f"{(final_accuracy-edge_only_accuracy)*100:+.2f}%"),
+            ]),
+        ])
+        print(f"[报告] 最终报告已保存")
+
+    except Exception as e:
+        print(f"[警告] 生成最终报告失败: {str(e)}")
+
+    print(f"[完成] 云侧推理完成")
+    return {
+        'status': 'success',
+        'cloud_samples': len(cloud_predictions),
+        'cloud_accuracy': float(cloud_accuracy),
+        'agree_ratio': float(agree_ratio),
+        'num_corrected': int(num_corrected),
+    }
 
 
 @register_task
 def rml2016_cloud_direct_infer_callback(task_id, **kwargs):
     """rml2016 端→云 直接推理回调"""
-    return cloud_direct_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→云 直接推理")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/rml2016_cloud_direct_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'rml2016_cloud_direct_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/rml2016_cloud_direct_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 device_load 加载全部数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('file_name', 'data_batch.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载数据失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+
+    accuracy = corrects.mean()
+    print(f"[结果] 云侧直接推理准确率: {accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_cloud_direct_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→云侧 数据传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_cloud_direct_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧直接推理报告', [
+        ('配置信息', [
+            ('模型类型', model_type),
+            ('数据集类型', dataset_type),
+            ('批次大小', batch_size),
+        ]),
+        ('推理结果', [
+            ('总样本数', len(predictions)),
+            ('整体准确率', f"{accuracy*100:.2f}%"),
+            ('平均置信度', f"{confidences.mean():.4f}"),
+            ('最低置信度', f"{confidences.min():.4f}"),
+        ]),
+    ])
+
+    print(f"[完成] 云侧直接推理完成")
+    return {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'avg_confidence': float(confidences.mean()),
+    }
 
 
 @register_task
 def rml2016_cloud_infer_callback(task_id, **kwargs):
     """rml2016 端→边→云 协同推理回调（云侧部分）"""
-    return cloud_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→边→云 协同推理（云侧部分）")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/rml2016_cloud_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'rml2016_cloud_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/rml2016_cloud_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 edge_infer 加载低置信度样本...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('signals_file', 'low_conf_signals.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        low_conf_data = load_from_output(task_id, input_source, input_file)
+        low_conf_X = low_conf_data['X']
+        low_conf_y = low_conf_data['y']
+        low_conf_indices = low_conf_data['indices']
+        dataset_type = low_conf_data['dataset_type']
+        edge_predictions = low_conf_data['predictions']
+        print(f"[加载] 成功加载 {len(low_conf_X)} 个低置信度样本")
+        if len(low_conf_X) == 0:
+            print(f"[跳过] 没有低置信度样本")
+            return {'status': 'skipped', 'cloud_samples': 0, 'message': '没有低置信度样本'}
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载低置信度样本失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    cloud_predictions, cloud_confidences, cloud_corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, low_conf_X, low_conf_y, batch_size, device, dataset_type=dataset_type
+    )
+    cloud_accuracy = cloud_corrects.mean()
+    print(f"[结果] 云侧准确率: {cloud_accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    agree_mask = (edge_predictions == cloud_predictions)
+    num_agree = agree_mask.sum()
+    agree_ratio = num_agree / len(edge_predictions) * 100
+
+    edge_wrong = (edge_predictions != low_conf_y)
+    corrected = edge_wrong & cloud_corrects.astype(bool)
+    num_corrected = corrected.sum()
+
+    print(f"[对比] 边云预测一致: {num_agree} ({agree_ratio:.1f}%)")
+    print(f"[修正] 云侧修正样本数: {num_corrected}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_cloud_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), cloud_predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), cloud_confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), cloud_corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '边侧→云侧 低置信度样本传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_cloud_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧推理报告', [
+        ('配置信息', [('模型类型', model_type), ('数据集类型', dataset_type)]),
+        ('推理结果', [
+            ('低置信度样本数', len(cloud_predictions)),
+            ('云侧准确率', f"{cloud_accuracy*100:.2f}%"),
+        ]),
+        ('边云对比', [
+            ('预测一致样本数', f"{num_agree} ({agree_ratio:.1f}%)"),
+            ('云侧修正样本数', num_corrected),
+        ]),
+    ])
+
+    try:
+        edge_predictions_all = np.load(f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer/predictions.npy")
+        edge_corrects = np.load(f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer/corrects.npy")
+        edge_confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer/confidences.npy")
+
+        device_data = load_from_output(task_id, 'rml2016_device_load', 'data_batch.pkl')
+        y_true = device_data['y']
+
+        final_predictions = edge_predictions_all.copy()
+        final_predictions[low_conf_indices] = cloud_predictions
+
+        edge_only_accuracy = edge_corrects.mean()
+        final_accuracy = (final_predictions == y_true).mean()
+
+        print(f"[最终] 边侧单独准确率: {edge_only_accuracy*100:.2f}%")
+        print(f"[最终] 边云协同准确率: {final_accuracy*100:.2f}%")
+        print(f"[最终] 准确率提升: {(final_accuracy-edge_only_accuracy)*100:+.2f}%")
+
+        _generate_report(os.path.join(result_dir, 'final_report.txt'), '边云协同推理最终报告', [
+            ('整体统计', [
+                ('总样本数', len(y_true)),
+                ('边侧处理样本', len(edge_predictions_all) - len(cloud_predictions)),
+                ('云侧处理样本', len(cloud_predictions)),
+                ('云侧调用率', f"{len(cloud_predictions)/len(y_true)*100:.1f}%"),
+            ]),
+            ('准确率对比', [
+                ('边侧单独准确率', f"{edge_only_accuracy*100:.2f}%"),
+                ('边云协同准确率', f"{final_accuracy*100:.2f}%"),
+                ('准确率提升', f"{(final_accuracy-edge_only_accuracy)*100:+.2f}%"),
+            ]),
+        ])
+        print(f"[报告] 最终报告已保存")
+
+    except Exception as e:
+        print(f"[警告] 生成最终报告失败: {str(e)}")
+
+    print(f"[完成] 云侧推理完成")
+    return {
+        'status': 'success',
+        'cloud_samples': len(cloud_predictions),
+        'cloud_accuracy': float(cloud_accuracy),
+        'agree_ratio': float(agree_ratio),
+        'num_corrected': int(num_corrected),
+    }
 
 
 @register_task
 def radar_cloud_direct_infer_callback(task_id, **kwargs):
     """radar 端→云 直接推理回调"""
-    return cloud_direct_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→云 直接推理")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/radar_cloud_direct_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'radar_cloud_direct_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/radar_cloud_direct_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 device_load 加载全部数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('file_name', 'data_batch.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载数据失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+    accuracy = corrects.mean()
+    print(f"[结果] 云侧直接推理准确率: {accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_cloud_direct_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→云侧 数据传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_cloud_direct_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧直接推理报告', [
+        ('配置信息', [
+            ('模型类型', model_type),
+            ('数据集类型', dataset_type),
+            ('批次大小', batch_size),
+        ]),
+        ('推理结果', [
+            ('总样本数', len(predictions)),
+            ('整体准确率', f"{accuracy*100:.2f}%"),
+            ('平均置信度', f"{confidences.mean():.4f}"),
+            ('最低置信度', f"{confidences.min():.4f}"),
+        ]),
+    ])
+    print(f"[完成] 云侧直接推理完成")
+    return {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'avg_confidence': float(confidences.mean()),
+    }
 
 
 @register_task
 def radar_cloud_infer_callback(task_id, **kwargs):
     """radar 端→边→云 协同推理回调（云侧部分）"""
-    return cloud_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→边→云 协同推理（云侧部分）")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/radar_cloud_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'radar_cloud_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/radar_cloud_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 edge_infer 加载低置信度样本...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('signals_file', 'low_conf_signals.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        low_conf_data = load_from_output(task_id, input_source, input_file)
+        low_conf_X = low_conf_data['X']
+        low_conf_y = low_conf_data['y']
+        low_conf_indices = low_conf_data['indices']
+        dataset_type = low_conf_data['dataset_type']
+        edge_predictions = low_conf_data['predictions']
+        print(f"[加载] 成功加载 {len(low_conf_X)} 个低置信度样本")
+        if len(low_conf_X) == 0:
+            print(f"[跳过] 没有低置信度样本")
+            return {'status': 'skipped', 'cloud_samples': 0, 'message': '没有低置信度样本'}
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载低置信度样本失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    cloud_predictions, cloud_confidences, cloud_corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, low_conf_X, low_conf_y, batch_size, device, dataset_type=dataset_type
+    )
+    cloud_accuracy = cloud_corrects.mean()
+    print(f"[结果] 云侧准确率: {cloud_accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    agree_mask = (edge_predictions == cloud_predictions)
+    num_agree = agree_mask.sum()
+    agree_ratio = num_agree / len(edge_predictions) * 100
+
+    edge_wrong = (edge_predictions != low_conf_y)
+    corrected = edge_wrong & cloud_corrects.astype(bool)
+    num_corrected = corrected.sum()
+
+    print(f"[对比] 边云预测一致: {num_agree} ({agree_ratio:.1f}%)")
+    print(f"[修正] 云侧修正样本数: {num_corrected}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_cloud_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), cloud_predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), cloud_confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), cloud_corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '边侧→云侧 低置信度样本传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_cloud_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧推理报告', [
+        ('配置信息', [('模型类型', model_type), ('数据集类型', dataset_type)]),
+        ('推理结果', [
+            ('低置信度样本数', len(cloud_predictions)),
+            ('云侧准确率', f"{cloud_accuracy*100:.2f}%"),
+        ]),
+        ('边云对比', [
+            ('预测一致样本数', f"{num_agree} ({agree_ratio:.1f}%)"),
+            ('云侧修正样本数', num_corrected),
+        ]),
+    ])
+
+    try:
+        edge_predictions_all = np.load(f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer/predictions.npy")
+        edge_corrects = np.load(f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer/corrects.npy")
+        edge_confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer/confidences.npy")
+
+        device_data = load_from_output(task_id, 'radar_device_load', 'data_batch.pkl')
+        y_true = device_data['y']
+
+        final_predictions = edge_predictions_all.copy()
+        final_predictions[low_conf_indices] = cloud_predictions
+
+        edge_only_accuracy = edge_corrects.mean()
+        final_accuracy = (final_predictions == y_true).mean()
+
+        print(f"[最终] 边侧单独准确率: {edge_only_accuracy*100:.2f}%")
+        print(f"[最终] 边云协同准确率: {final_accuracy*100:.2f}%")
+        print(f"[最终] 准确率提升: {(final_accuracy-edge_only_accuracy)*100:+.2f}%")
+
+        _generate_report(os.path.join(result_dir, 'final_report.txt'), '边云协同推理最终报告', [
+            ('整体统计', [
+                ('总样本数', len(y_true)),
+                ('边侧处理样本', len(edge_predictions_all) - len(cloud_predictions)),
+                ('云侧处理样本', len(cloud_predictions)),
+                ('云侧调用率', f"{len(cloud_predictions)/len(y_true)*100:.1f}%"),
+            ]),
+            ('准确率对比', [
+                ('边侧单独准确率', f"{edge_only_accuracy*100:.2f}%"),
+                ('边云协同准确率', f"{final_accuracy*100:.2f}%"),
+                ('准确率提升', f"{(final_accuracy-edge_only_accuracy)*100:+.2f}%"),
+            ]),
+        ])
+        print(f"[报告] 最终报告已保存")
+    except Exception as e:
+        print(f"[警告] 生成最终报告失败: {str(e)}")
+
+    print(f"[完成] 云侧推理完成")
+    return {
+        'status': 'success',
+        'cloud_samples': len(cloud_predictions),
+        'cloud_accuracy': float(cloud_accuracy),
+        'agree_ratio': float(agree_ratio),
+        'num_corrected': int(num_corrected),
+    }
 
 
 @register_task
 def ratr_cloud_direct_infer_callback(task_id, **kwargs):
     """ratr 端→云 直接推理回调"""
-    return cloud_direct_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→云 直接推理")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/ratr_cloud_direct_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'ratr_cloud_direct_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/ratr_cloud_direct_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 device_load 加载全部数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('file_name', 'data_batch.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载数据失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+    accuracy = corrects.mean()
+    print(f"[结果] 云侧直接推理准确率: {accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_cloud_direct_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→云侧 数据传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_cloud_direct_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧直接推理报告', [
+        ('配置信息', [
+            ('模型类型', model_type),
+            ('数据集类型', dataset_type),
+            ('批次大小', batch_size),
+        ]),
+        ('推理结果', [
+            ('总样本数', len(predictions)),
+            ('整体准确率', f"{accuracy*100:.2f}%"),
+            ('平均置信度', f"{confidences.mean():.4f}"),
+            ('最低置信度', f"{confidences.min():.4f}"),
+        ]),
+    ])
+    print(f"[完成] 云侧直接推理完成")
+    return {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'avg_confidence': float(confidences.mean()),
+    }
 
 
 @register_task
 def ratr_cloud_infer_callback(task_id, **kwargs):
     """ratr 端→边→云 协同推理回调（云侧部分）"""
-    return cloud_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 端→边→云 协同推理（云侧部分）")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/ratr_cloud_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+    result, config = check_parameters(config_path, param_list)
+
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    if check_output_exists(task_id, 'ratr_cloud_infer', 'cloud_predictions.npy'):
+        print(f"[跳过] 云侧推理结果已存在")
+        cloud_predictions = np.load(f"{TASKS_ROOT}/{task_id}/output/ratr_cloud_infer/cloud_predictions.npy")
+        return {'status': 'cached', 'cloud_samples': len(cloud_predictions)}
+
+    print(f"[加载] 从 edge_infer 加载低置信度样本...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data'].get('signals_file', 'low_conf_signals.pkl')
+
+    t_data_load_start = time.time()
+    try:
+        low_conf_data = load_from_output(task_id, input_source, input_file)
+        low_conf_X = low_conf_data['X']
+        low_conf_y = low_conf_data['y']
+        low_conf_indices = low_conf_data['indices']
+        dataset_type = low_conf_data['dataset_type']
+        edge_predictions = low_conf_data['predictions']
+        print(f"[加载] 成功加载 {len(low_conf_X)} 个低置信度样本")
+        if len(low_conf_X) == 0:
+            print(f"[跳过] 没有低置信度样本")
+            return {'status': 'skipped', 'cloud_samples': 0, 'message': '没有低置信度样本'}
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载低置信度样本失败: {str(e)}"}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    t_model_load_start = time.time()
+    try:
+        model = _load_cloud_model(model_type, num_classes, dataset_type, model_path, device)
+    except Exception as e:
+        return {'status': 'error', 'message': f"加载模型失败: {str(e)}"}
+    t_model_load = time.time() - t_model_load_start
+
+    cloud_predictions, cloud_confidences, cloud_corrects, t_warmup, t_infer = batch_inference_cloud(
+        model, low_conf_X, low_conf_y, batch_size, device, dataset_type=dataset_type
+    )
+    cloud_accuracy = cloud_corrects.mean()
+    print(f"[结果] 云侧准确率: {cloud_accuracy*100:.2f}%")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    agree_mask = (edge_predictions == cloud_predictions)
+    num_agree = agree_mask.sum()
+    agree_ratio = num_agree / len(edge_predictions) * 100
+
+    edge_wrong = (edge_predictions != low_conf_y)
+    corrected = edge_wrong & cloud_corrects.astype(bool)
+    num_corrected = corrected.sum()
+
+    print(f"[对比] 边云预测一致: {num_agree} ({agree_ratio:.1f}%)")
+    print(f"[修正] 云侧修正样本数: {num_corrected}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_cloud_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'cloud_predictions.npy'), cloud_predictions)
+    save_numpy(os.path.join(output_dir, 'cloud_confidences.npy'), cloud_confidences)
+    save_numpy(os.path.join(output_dir, 'cloud_corrects.npy'), cloud_corrects)
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '边侧→云侧 低置信度样本传输耗时（模拟带宽限速）'})
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_cloud_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧推理报告', [
+        ('配置信息', [('模型类型', model_type), ('数据集类型', dataset_type)]),
+        ('推理结果', [
+            ('低置信度样本数', len(cloud_predictions)),
+            ('云侧准确率', f"{cloud_accuracy*100:.2f}%"),
+        ]),
+        ('边云对比', [
+            ('预测一致样本数', f"{num_agree} ({agree_ratio:.1f}%)"),
+            ('云侧修正样本数', num_corrected),
+        ]),
+    ])
+
+    try:
+        edge_predictions_all = np.load(f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer/predictions.npy")
+        edge_corrects = np.load(f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer/corrects.npy")
+        edge_confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer/confidences.npy")
+
+        device_data = load_from_output(task_id, 'ratr_device_load', 'data_batch.pkl')
+        y_true = device_data['y']
+
+        final_predictions = edge_predictions_all.copy()
+        final_predictions[low_conf_indices] = cloud_predictions
+
+        edge_only_accuracy = edge_corrects.mean()
+        final_accuracy = (final_predictions == y_true).mean()
+
+        print(f"[最终] 边侧单独准确率: {edge_only_accuracy*100:.2f}%")
+        print(f"[最终] 边云协同准确率: {final_accuracy*100:.2f}%")
+        print(f"[最终] 准确率提升: {(final_accuracy-edge_only_accuracy)*100:+.2f}%")
+
+        _generate_report(os.path.join(result_dir, 'final_report.txt'), '边云协同推理最终报告', [
+            ('整体统计', [
+                ('总样本数', len(y_true)),
+                ('边侧处理样本', len(edge_predictions_all) - len(cloud_predictions)),
+                ('云侧处理样本', len(cloud_predictions)),
+                ('云侧调用率', f"{len(cloud_predictions)/len(y_true)*100:.1f}%"),
+            ]),
+            ('准确率对比', [
+                ('边侧单独准确率', f"{edge_only_accuracy*100:.2f}%"),
+                ('边云协同准确率', f"{final_accuracy*100:.2f}%"),
+                ('准确率提升', f"{(final_accuracy-edge_only_accuracy)*100:+.2f}%"),
+            ]),
+        ])
+        print(f"[报告] 最终报告已保存")
+    except Exception as e:
+        print(f"[警告] 生成最终报告失败: {str(e)}")
+
+    print(f"[完成] 云侧推理完成")
+    return {
+        'status': 'success',
+        'cloud_samples': len(cloud_predictions),
+        'cloud_accuracy': float(cloud_accuracy),
+        'agree_ratio': float(agree_ratio),
+        'num_corrected': int(num_corrected),
+    }

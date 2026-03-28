@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
-from config_refactor import get_dataset_from_task_id
+from config_refactor import TASKS_ROOT
 from utils_refactor import (
     load_json, load_pickle, save_pickle, save_numpy,
     check_parameters, load_from_output, check_output_exists
@@ -83,6 +83,29 @@ def _make_dataloader(X, y, batch_size, shuffle=True, dataset_type=None):
 
     dataset = TensorDataset(X_tensor, y_tensor)
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
+
+def _apply_cpu_stability_settings(device):
+    device_str = str(device).lower()
+    if not device_str.startswith('cpu'):
+        return
+
+    for k in ['OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'NUMEXPR_NUM_THREADS', 'TORCH_NUM_THREADS']:
+        os.environ.setdefault(k, '1')
+
+    try:
+        torch.set_num_threads(1)
+    except Exception:
+        pass
+    try:
+        torch.set_num_interop_threads(1)
+    except Exception:
+        pass
+
+    try:
+        torch.backends.mkldnn.enabled = False
+    except Exception:
+        pass
 
 
 def _train_one_epoch(model, train_loader, optimizer, criterion, device,
@@ -255,9 +278,8 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     print(f"{'='*60}")
 
     # 1. 读取配置
-    ds = get_dataset_from_task_id(task_id)
-    config_name = config_name or f'{ds}_cloud_pretrain'
-    config_path = f"./tasks/{task_id}/input/{config_name}.json"
+    config_name = config_name or 'cloud_pretrain'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
     param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
     result, config = check_parameters(config_path, param_list)
     if 'error' in result:
@@ -277,11 +299,12 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     learning_rate = config.get('learning_rate', 0.001)
     weight_decay = config.get('weight_decay', 1e-4)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
 
     print(f"[配置] 数据: {data_path}, 模型: {model_type}, epochs: {epochs}")
 
     # 2. 缓存检查
-    output_dir = f"./tasks/{task_id}/output/cloud_pretrain"
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/cloud_pretrain"
     if check_output_exists(task_id, 'cloud_pretrain', 'teacher_model.pth'):
         print(f"[跳过] 教师模型已存在")
         return {'status': 'cached'}
@@ -382,7 +405,7 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
 
     # 8. 报告
-    result_dir = f"./tasks/{task_id}/result/cloud_pretrain"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/cloud_pretrain"
     os.makedirs(result_dir, exist_ok=True)
     with open(os.path.join(result_dir, 'pretrain_report.txt'), 'w', encoding='utf-8') as f:
         f.write("=" * 60 + "\n教师模型预训练报告\n" + "=" * 60 + "\n\n")
@@ -534,9 +557,7 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     elif edge_id == 2:
         return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
-    else:
-        # edge_id=None → 单机模式，edge_kd_1_callback 内部会处理所有边
-        return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
 
 
 @register_task
@@ -554,15 +575,18 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
       单机: python run_task.py --task_id xxx --config link11_edge_kd
       分布式: python run_task.py --task_id xxx --config link11_edge_kd_1
     """
-    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
+    if config_name is None and edge_id is None:
+        config_name = 'edge_kd_1'
+        edge_id = 1
+
     if config_name:
-        config_path = f"./tasks/{task_id}/input/{config_name}.json"
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
     elif edge_id is not None:
-        edge_config = f"./tasks/{task_id}/input/{ds}_edge_kd_{edge_id}.json"
-        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/{ds}_edge_kd.json"
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/edge_kd.json"
     else:
-        config_path = f"./tasks/{task_id}/input/{ds}_edge_kd.json"
+        config_path = f"{TASKS_ROOT}/{task_id}/input/edge_kd.json"
 
     param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
     result, config = check_parameters(config_path, param_list)
@@ -582,12 +606,14 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     batch_size = config.get('batch_size', 128)
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
 
     if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
         raise ValueError(
             f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
 
-    output_dir = f"./tasks/{task_id}/output/edge_kd_1"
+    task_folder = config_name or (f"edge_kd_{edge_id}" if edge_id is not None else 'edge_kd_1')
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{task_folder}"
 
     # 确定要处理的边和数据路径（优先从 input_data 读取）
     input_data = config.get('input_data', {})
@@ -606,7 +632,7 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
             edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
             single_edge_mode = True
         else:
-            if check_output_exists(task_id, 'edge_kd_1', 'student_model.pth'):
+            if check_output_exists(task_id, task_folder, 'student_model.pth'):
                 print(f"[跳过] 学生模型已存在")
                 return {'status': 'cached'}
             edges_to_process = list(enumerate(edge_data_paths))
@@ -631,7 +657,7 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     teacher_model_type = config.get('teacher_model_type')
     file_name = input_data.get('file_name')
     parent_folder = input_data.get('parent_folder')
-    teacher_model_path = f"./tasks/{task_id}/output/{parent_folder}/{file_name}"
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
 
     if not os.path.exists(teacher_model_path):
         return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
@@ -686,30 +712,6 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
             'edge_id': eid,
         }
 
-        if dataset_type == 'ratr' and student_model_type == 'real_resnet7_ratr_cp':
-            try:
-                from utils_refactor.cp_prune import OneShotLocalPruner, PruneConfig, infer_resnet_internal_cfg
-
-                print(f"[边侧 {eid}] (ratr) 开始 CP 剪枝...")
-
-                student.load_state_dict(kd_result['best_state'], strict=True)
-                student.eval()
-
-                pruner = OneShotLocalPruner(PruneConfig(prune_ratio=0.9, min_channels=1))
-                pruned_model, report = pruner.prune_model(student, inplace=False)
-                internal_cfg = infer_resnet_internal_cfg(pruned_model)
-
-                rebuilt = create_model_by_type('real_resnet7_ratr_cp', num_classes, dataset_type, internal_cfg=internal_cfg)
-                rebuilt.load_state_dict(pruned_model.state_dict(), strict=True)
-
-                save_payload['model_state_dict'] = rebuilt.state_dict()
-                save_payload['model_type'] = 'real_resnet7_ratr_cp'
-                save_payload['internal_cfg'] = internal_cfg
-                save_payload['cp_prune_ratio'] = 0.9
-                print(f"[边侧 {eid}] (ratr) 已完成 CP 剪枝: ratio=0.9, layers={len(report)}")
-            except Exception as e:
-                print(f"[警告] (ratr) CP 剪枝失败，将回退保存未剪枝模型: {e}")
-
         torch.save(save_payload, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
@@ -738,7 +740,7 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     }, os.path.join(output_dir, 'student_model.pth'))
 
     # 报告
-    result_dir = f"./tasks/{task_id}/result/edge_kd_1"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/{task_folder}"
     os.makedirs(result_dir, exist_ok=True)
     total_time = sum(r['train_time'] for _, r in all_results)
     with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
@@ -783,15 +785,18 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
       单机: python run_task.py --task_id xxx --config link11_edge_kd
       分布式: python run_task.py --task_id xxx --config link11_edge_kd_1
     """
-    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
+    if config_name is None and edge_id is None:
+        config_name = 'edge_kd_2'
+        edge_id = 2
+
     if config_name:
-        config_path = f"./tasks/{task_id}/input/{config_name}.json"
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
     elif edge_id is not None:
-        edge_config = f"./tasks/{task_id}/input/{ds}_edge_kd_{edge_id}.json"
-        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/{ds}_edge_kd.json"
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/edge_kd.json"
     else:
-        config_path = f"./tasks/{task_id}/input/{ds}_edge_kd.json"
+        config_path = f"{TASKS_ROOT}/{task_id}/input/edge_kd.json"
 
     param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
     result, config = check_parameters(config_path, param_list)
@@ -811,12 +816,14 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     batch_size = config.get('batch_size', 128)
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
 
     if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
         raise ValueError(
             f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
 
-    output_dir = f"./tasks/{task_id}/output/edge_kd_2"
+    task_folder = config_name or (f"edge_kd_{edge_id}" if edge_id is not None else 'edge_kd_2')
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{task_folder}"
 
     # 确定要处理的边和数据路径（优先从 input_data 读取）
     input_data = config.get('input_data', {})
@@ -835,7 +842,7 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
             edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
             single_edge_mode = True
         else:
-            if check_output_exists(task_id, 'edge_kd_2', 'student_model.pth'):
+            if check_output_exists(task_id, task_folder, 'student_model.pth'):
                 print(f"[跳过] 学生模型已存在")
                 return {'status': 'cached'}
             edges_to_process = list(enumerate(edge_data_paths))
@@ -860,7 +867,7 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     teacher_model_type = config.get('teacher_model_type')
     file_name = input_data.get('file_name')
     parent_folder = input_data.get('parent_folder')
-    teacher_model_path = f"./tasks/{task_id}/output/{parent_folder}/{file_name}"
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
 
     if not os.path.exists(teacher_model_path):
         return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
@@ -943,7 +950,7 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     }, os.path.join(output_dir, 'student_model.pth'))
 
     # 报告
-    result_dir = f"./tasks/{task_id}/result/edge_kd_2"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/{task_folder}"
     os.makedirs(result_dir, exist_ok=True)
     total_time = sum(r['train_time'] for _, r in all_results)
     with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
@@ -976,12 +983,12 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
 
 # ================================================================
 # 3. 联邦学习（文件系统方式，单机模拟多边侧）
-# ================================================================
 
 @register_task
 def federated_train_callback(task_id, config_name=None, **kwargs):
     """
-    联邦学习训练（FedAvg，文件系统方式）
+    联邦学习（单机模式）：云侧模拟多边训练+聚合
+（FedAvg，文件系统方式）
 
     单机模拟多个边侧的联邦学习过程：
     1. 初始化全局模型（可从知识蒸馏模型加载）
@@ -990,19 +997,18 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
        - 聚合所有边侧模型 → 更新全局模型
     3. 保存最终全局模型和各边侧模型
 
-    配置: input/federated_train.json
+    配置: input/{config}.json
     输出:
-      - output/federated_train/global_model.pth
-      - output/federated_train/edge_{i}_model.pth
-      - result/federated_train/federated_report.txt
+      - output/{config}/global_model.pth
+      - output/{config}/edge_{i}_model.pth
+      - result/{config}/federated_report.txt
     """
     print(f"\n{'='*60}")
     print(f"[联邦学习] 开始训练")
     print(f"{'='*60}")
 
-    ds = get_dataset_from_task_id(task_id)
-    config_name_used = config_name or f'{ds}_federated_train'
-    config_path = f"./tasks/{task_id}/input/{config_name_used}.json"
+    config_name_used = config_name or 'federated_train'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name_used}.json"
     param_list = ['dataset_type', 'edge_model_type', 'num_classes',
                   'num_rounds', 'local_epochs']
     result, config = check_parameters(config_path, param_list)
@@ -1024,6 +1030,7 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     batch_size = config.get('batch_size', 32)
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
     input_data = config.get('input_data', {})
     init_model_file = input_data.get('file_name', config.get('file_name', None))
     init_parent_folder = input_data.get('parent_folder', None)
@@ -1031,16 +1038,17 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
         # 兼容：若 file_name 只是文件名（无目录），则拼接到 tasks/{task_id}/output/{parent_folder}/ 下
         # 若用户已提供相对/绝对路径，则按原样使用
         if (not os.path.isabs(init_model_file)) and (os.path.dirname(init_model_file) == ''):
-            init_model_path = os.path.join(f"./tasks/{task_id}/output", init_parent_folder, init_model_file)
+            init_model_path = os.path.join(f"{TASKS_ROOT}/{task_id}/output", init_parent_folder, init_model_file)
         else:
             init_model_path = init_model_file
     else:
         init_model_path = init_model_file
 
     num_edges = len(edge_data_paths)
-    output_dir = f"./tasks/{task_id}/output/federated_train"
+    output_task_folder = config_name_used
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_task_folder}"
 
-    if check_output_exists(task_id, 'federated_train', 'global_model.pth'):
+    if check_output_exists(task_id, output_task_folder, 'global_model.pth'):
         print(f"[跳过] 联邦学习模型已存在")
         return {'status': 'cached'}
 
@@ -1064,7 +1072,8 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     internal_cfg = None
     global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
 
-    edge_kd_dir = f"./tasks/{task_id}/output/edge_kd_2"
+    kd_parent_folder = config.get('kd_parent_folder', 'edge_kd_2')
+    edge_kd_dir = f"{TASKS_ROOT}/{task_id}/output/{kd_parent_folder}"
     per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth')
                       for i in range(num_edges)]
     has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
@@ -1195,7 +1204,7 @@ def federated_train_callback(task_id, config_name=None, **kwargs):
     save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
 
     # 5. 报告
-    result_dir = f"./tasks/{task_id}/result/federated_train"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/{output_task_folder}"
     os.makedirs(result_dir, exist_ok=True)
     with open(os.path.join(result_dir, 'federated_report.txt'), 'w', encoding='utf-8') as f:
         f.write("=" * 60 + "\n联邦学习训练报告\n" + "=" * 60 + "\n\n")
@@ -1256,13 +1265,9 @@ def _wait_for_file(path, timeout=1800, interval=5):
 
 def _load_federated_config(task_id, config_name=None):
     """加载联邦学习配置，支持按 config_name 指定不同配置文件"""
-    ds = get_dataset_from_task_id(task_id)
-    if config_name:
-        config_path = f"./tasks/{task_id}/input/{config_name}.json"
-        if not os.path.exists(config_path):
-            config_path = f"./tasks/{task_id}/input/{ds}_federated_train.json"
-    else:
-        config_path = f"./tasks/{task_id}/input/{ds}_federated_train.json"
+    if config_name is None:
+        config_name = 'federated_train'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
     param_list = ['dataset_type', 'edge_model_type', 'num_classes', 'num_rounds']
     result, config = check_parameters(config_path, param_list)
     if 'error' in result:
@@ -1290,8 +1295,7 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     print(f"[联邦学习-云侧] 聚合服务启动")
     print(f"{'='*60}")
 
-    ds = get_dataset_from_task_id(task_id)
-    config_name = config_name or f'{ds}_federated_cloud'
+    config_name = config_name or 'federated_cloud'
     config = _load_federated_config(task_id, config_name)
 
     dataset_type = config['dataset_type']
@@ -1299,6 +1303,7 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     num_classes = config['num_classes']
     num_rounds = config['num_rounds']
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
     input_data = config.get('input_data', {})
         # 修改后的代码
     init_model_file = input_data.get('file_name')
@@ -1306,17 +1311,18 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
 
     if init_model_file and init_model_parent:
         # 使用相对路径拼接
-        init_model_path = f"./tasks/{task_id}/output/{init_model_parent}/{init_model_file}"
+        init_model_path = f"{TASKS_ROOT}/{task_id}/output/{init_model_parent}/{init_model_file}"
     else:
         # 后备选项：使用旧的绝对路径配置
         init_model_path = config.get('init_model_path', None)
     timeout = config.get('sync_timeout', 1800)
 
     num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
-    output_dir = f"./tasks/{task_id}/output/federated_train"
+    output_task_folder = config_name.replace('federated_cloud', 'federated_train')
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_task_folder}"
     os.makedirs(output_dir, exist_ok=True)
 
-    if check_output_exists(task_id, 'federated_train', 'global_model.pth'):
+    if check_output_exists(task_id, output_task_folder, 'global_model.pth'):
         print(f"[跳过] 联邦学习全局模型已存在")
         return {'status': 'cached'}
 
@@ -1438,7 +1444,7 @@ def federated_cloud_callback(task_id, config_name=None, **kwargs):
     save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
 
     # 报告
-    result_dir = f"./tasks/{task_id}/result/federated_train"
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/{output_task_folder}"
     os.makedirs(result_dir, exist_ok=True)
     with open(os.path.join(result_dir, 'federated_server_report.txt'), 'w', encoding='utf-8') as f:
         f.write("=" * 60 + "\n联邦学习聚合报告（分布式模式-云侧）\n" + "=" * 60 + "\n\n")
@@ -1495,17 +1501,13 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
     配置: input/federated_edge_{N}.json
     运行: python run_task.py --task_id xxx --config federated_edge_1
     """
-    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
-    if config_name:
-        config_name_resolved = config_name
-    elif edge_id is not None:
-        edge_config = f"{ds}_federated_edge_{edge_id}"
-        if os.path.exists(f"./tasks/{task_id}/input/{edge_config}.json"):
-            config_name_resolved = edge_config
-        else:
-            config_name_resolved = None
-    else:
+    if config_name is None and edge_id is None:
+        config_name = 'federated_edge_1'
+        edge_id = 1
+
+    config_name_resolved = config_name
+    if config_name_resolved is None:
         return {'status': 'error', 'message': '需要指定 --config federated_edge_N 或 --edge_id 参数'}
 
     config = _load_federated_config(task_id, config_name_resolved)
@@ -1526,11 +1528,13 @@ def federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
     batch_size = config.get('batch_size', 32)
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
     timeout = config.get('sync_timeout', 1800)
 
     input_data = config.get('input_data', {})
+    default_sync_folder = config_name_resolved.replace('federated_edge', 'federated_train')
     output_dir = config.get('sync_dir',
-        f"./tasks/{task_id}/output/federated_train")
+        f"{TASKS_ROOT}/{task_id}/output/{default_sync_folder}")
     os.makedirs(output_dir, exist_ok=True)
 
     # 检查是否已完成
@@ -1641,17 +1645,13 @@ def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
     配置: input/federated_edge_{N}.json
     运行: python run_task.py --task_id xxx --config federated_edge_1
     """
-    ds = get_dataset_from_task_id(task_id)
     # 解析配置文件路径
-    if config_name:
-        config_name_resolved = config_name
-    elif edge_id is not None:
-        edge_config = f"{ds}_federated_edge_{edge_id}"
-        if os.path.exists(f"./tasks/{task_id}/input/{edge_config}.json"):
-            config_name_resolved = edge_config
-        else:
-            config_name_resolved = None
-    else:
+    if config_name is None and edge_id is None:
+        config_name = 'federated_edge_2'
+        edge_id = 2
+
+    config_name_resolved = config_name
+    if config_name_resolved is None:
         return {'status': 'error', 'message': '需要指定 --config federated_edge_N 或 --edge_id 参数'}
 
     config = _load_federated_config(task_id, config_name_resolved)
@@ -1672,11 +1672,13 @@ def federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
     batch_size = config.get('batch_size', 32)
     learning_rate = config.get('learning_rate', 0.001)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
     timeout = config.get('sync_timeout', 1800)
 
     input_data = config.get('input_data', {})
+    default_sync_folder = config_name_resolved.replace('federated_edge', 'federated_train')
     output_dir = config.get('sync_dir',
-        f"./tasks/{task_id}/output/federated_train")
+        f"{TASKS_ROOT}/{task_id}/output/{default_sync_folder}")
     os.makedirs(output_dir, exist_ok=True)
 
     # 检查是否已完成
@@ -1785,7 +1787,149 @@ def federated_server_callback(task_id, **kwargs):
 @register_task
 def link11_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """link11 云侧预训练教师模型"""
-    return cloud_pretrain_callback(task_id, config_name=config_name or 'link11_cloud_pretrain', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 预训练教师模型")
+    print(f"{'='*60}")
+
+    config_name = config_name or 'link11_cloud_pretrain'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data = config.get('input_data', {})
+    data_path = input_data.get('data_path', config.get('data_path'))
+    if not data_path:
+        return {'status': 'error', 'message': '缺少参数: data_path（需在 input_data 或顶层配置中指定）'}
+    dataset_type = config['dataset_type']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    epochs = config['epochs']
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    weight_decay = config.get('weight_decay', 1e-4)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    print(f"[配置] 数据: {data_path}, 模型: {model_type}, epochs: {epochs}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_cloud_pretrain"
+    if check_output_exists(task_id, 'link11_cloud_pretrain', 'teacher_model.pth'):
+        print(f"[跳过] 教师模型已存在")
+        return {'status': 'cached'}
+
+    print(f"[加载] 正在加载训练数据...")
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_val, y_val = splits['val']
+    X_test, y_test = splits['test']
+
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    print(f"[加载] 训练集: {len(X_train)}, 验证集: {len(X_val)}, 测试集: {len(X_test)}")
+
+    model = create_model_by_type(model_type, num_classes, dataset_type)
+    model.to(device)
+    print(f"[模型] 创建教师模型: {model_type}")
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    best_val_acc = 0.0
+    best_model_state = None
+    best_epoch = 0
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
+
+    os.makedirs(output_dir, exist_ok=True)
+    best_ckpt_path = os.path.join(output_dir, 'teacher_best.pth')
+
+    num_batches = len(train_loader)
+    print(f"\n[训练] 开始训练... (每轮 {num_batches} 个batch, batch_size={batch_size})")
+    start_time = time.time()
+
+    for epoch in range(1, epochs + 1):
+        epoch_start = time.time()
+        train_loss, train_acc = _train_one_epoch(
+            model, train_loader, optimizer, criterion, device,
+            epoch_info=(epoch, epochs))
+        val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
+        scheduler.step()
+
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['val_loss'].append(val_loss)
+        history['val_acc'].append(val_acc)
+
+        improved = ""
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            improved = " ★ 已保存"
+            torch.save({
+                'model_state_dict': best_model_state,
+                'model_type': model_type,
+                'num_classes': num_classes,
+                'dataset_type': dataset_type,
+                'best_val_acc': best_val_acc,
+                'epoch': epoch,
+            }, best_ckpt_path)
+
+        epoch_time = time.time() - epoch_start
+        elapsed = time.time() - start_time
+        eta = elapsed / epoch * (epochs - epoch)
+        eta_min, eta_sec = divmod(int(eta), 60)
+        print(f"  Epoch {epoch}/{epochs} ({epoch_time:.1f}s, ETA {eta_min}m{eta_sec:02d}s) | "
+              f"Train Loss: {train_loss:.4f} Acc: {train_acc*100:.2f}% | "
+              f"Val Loss: {val_loss:.4f} Acc: {val_acc*100:.2f}% | "
+              f"Best: {best_val_acc*100:.2f}% (ep{best_epoch}){improved}",
+              flush=True)
+
+    total_time = time.time() - start_time
+    print(f"[训练] 完成! 总耗时: {total_time:.1f}s, 最佳验证准确率: {best_val_acc*100:.2f}% (epoch {best_epoch})")
+
+    model.load_state_dict(best_model_state)
+    test_loss, test_acc = _evaluate(model, test_loader, criterion, device)
+    print(f"[测试] 测试准确率: {test_acc*100:.2f}%")
+
+    final_save = {
+        'model_state_dict': best_model_state,
+        'model_type': model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_val_acc': best_val_acc,
+        'test_acc': test_acc,
+        'epoch': best_epoch,
+    }
+    torch.save(final_save, os.path.join(output_dir, 'teacher_model.pth'))
+    if os.path.exists(best_ckpt_path):
+        os.remove(best_ckpt_path)
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_cloud_pretrain"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'pretrain_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n教师模型预训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳验证准确率: {best_val_acc*100:.2f}%\n")
+        f.write(f"测试准确率: {test_acc*100:.2f}%\n")
+
+    print(f"[完成] 教师模型已保存到 {output_dir}")
+    return {
+        'status': 'success',
+        'best_val_acc': float(best_val_acc),
+        'test_acc': float(test_acc),
+        'train_time': total_time,
+    }
 
 
 @register_task
@@ -1806,25 +1950,768 @@ def link11_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
 @register_task
 def link11_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """link11 知识蒸馏 - 边1"""
-    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_edge_kd_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'link11_edge_kd_1'
+        edge_id = 1
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/link11_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/link11_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/link11_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_edge_kd_1"
+
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'link11_edge_kd_1', 'student_model.pth'):
+                print(f"[跳过] 学生模型已存在")
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    mode_label = f"边 {edge_id}" if single_edge_mode else f"全部 {num_edges} 个边"
+    print(f"\n{'='*60}")
+    print(f"[知识蒸馏] 分别蒸馏 — {mode_label}")
+    print(f"{'='*60}")
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] student_edge_{edge_id}.pth 已存在")
+            return {'status': 'cached'}
+
+    input_data = config.get('input_data', {})
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+    print(f"[教师] 加载完成: {teacher_model_type} ← {teacher_model_path}")
+    print(f"[配置] 每边 {epochs} epoch, alpha={alpha}, T={temperature}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        print(f"\n{'='*60}")
+        print(f"[边侧 {eid}/{num_edges}] 蒸馏开始 (数据: {edge_path})")
+        print(f"{'='*60}")
+
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        print(f"[边侧 {eid}] 训练集: {len(X_train)}, 测试集: {len(X_test)}")
+
+        print(f"[边侧 {eid}] 生成软标签...")
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+        print(f"[边侧 {eid}] 软标签: {soft_labels.shape}")
+
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}", dataset_type=dataset_type)
+
+        save_payload = {
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }
+        torch.save(save_payload, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
+
+        all_results.append((eid, kd_result))
+
+    if single_edge_mode:
+        eid, r = all_results[0]
+        print(f"\n[完成] 边 {eid} 蒸馏完成: {r['best_acc']*100:.2f}%")
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_edge_kd_1"
+    os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
+    with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n知识蒸馏训练报告（分别蒸馏）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"学生模型: {student_model_type}\n")
+        f.write(f"教师模型: {teacher_model_type}\n")
+        f.write(f"蒸馏参数: alpha={alpha}, temperature={temperature}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        for eid, r in all_results:
+            f.write(f"边侧 {eid}: 最佳准确率 {r['best_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
+
+    print(f"\n{'='*60}")
+    print(f"[完成] 蒸馏结果汇总:")
+    for eid, r in all_results:
+        marker = " ← student_model.pth" if eid == best_eid else ""
+        print(f"  边{eid}: {r['best_acc']*100:.2f}%{marker}")
+    print(f"{'='*60}")
+
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
 
 
 @register_task
 def link11_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """link11 知识蒸馏 - 边2"""
-    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_edge_kd_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'link11_edge_kd_2'
+        edge_id = 2
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/link11_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/link11_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/link11_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_edge_kd_2"
+
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'link11_edge_kd_2', 'student_model.pth'):
+                print(f"[跳过] 学生模型已存在")
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    mode_label = f"边 {edge_id}" if single_edge_mode else f"全部 {num_edges} 个边"
+    print(f"\n{'='*60}")
+    print(f"[知识蒸馏] 分别蒸馏 — {mode_label}")
+    print(f"{'='*60}")
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] student_edge_{edge_id}.pth 已存在")
+            return {'status': 'cached'}
+
+    input_data = config.get('input_data', {})
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+    print(f"[教师] 加载完成: {teacher_model_type} ← {teacher_model_path}")
+    print(f"[配置] 每边 {epochs} epoch, alpha={alpha}, T={temperature}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        print(f"\n{'='*60}")
+        print(f"[边侧 {eid}/{num_edges}] 蒸馏开始 (数据: {edge_path})")
+        print(f"{'='*60}")
+
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        print(f"[边侧 {eid}] 训练集: {len(X_train)}, 测试集: {len(X_test)}")
+
+        print(f"[边侧 {eid}] 生成软标签...")
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+        print(f"[边侧 {eid}] 软标签: {soft_labels.shape}")
+
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}", dataset_type=dataset_type)
+
+        save_payload = {
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }
+        torch.save(save_payload, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
+
+        all_results.append((eid, kd_result))
+
+    if single_edge_mode:
+        eid, r = all_results[0]
+        print(f"\n[完成] 边 {eid} 蒸馏完成: {r['best_acc']*100:.2f}%")
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_edge_kd_2"
+    os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
+    with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n知识蒸馏训练报告（分别蒸馏）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"学生模型: {student_model_type}\n")
+        f.write(f"教师模型: {teacher_model_type}\n")
+        f.write(f"蒸馏参数: alpha={alpha}, temperature={temperature}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        for eid, r in all_results:
+            f.write(f"边侧 {eid}: 最佳准确率 {r['best_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
+
+    print(f"\n{'='*60}")
+    print(f"[完成] 蒸馏结果汇总:")
+    for eid, r in all_results:
+        marker = " ← student_model.pth" if eid == best_eid else ""
+        print(f"  边{eid}: {r['best_acc']*100:.2f}%{marker}")
+    print(f"{'='*60}")
+
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
 
 
 @register_task
 def link11_federated_train_callback(task_id, config_name=None, **kwargs):
     """link11 联邦学习训练"""
-    return federated_train_callback(task_id, config_name=config_name or 'link11_federated_train', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[联邦学习] 开始训练")
+    print(f"{'='*60}")
+
+    config_name_used = config_name or 'link11_federated_train'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name_used}.json"
+    param_list = ['dataset_type', 'edge_model_type', 'num_classes',
+                  'num_rounds', 'local_epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data_fed = config.get('input_data', {})
+    edge_data_paths = input_data_fed.get('edge_data_paths',
+        config.get('edge_data_paths'))
+    if not edge_data_paths:
+        return {'status': 'error', 'message': '缺少参数: edge_data_paths（需在 input_data 或顶层配置中指定）'}
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config['local_epochs']
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name', config.get('file_name', None))
+    init_parent_folder = input_data.get('parent_folder', None)
+    if init_model_file and init_parent_folder:
+        if (not os.path.isabs(init_model_file)) and (os.path.dirname(init_model_file) == ''):
+            init_model_path = os.path.join(f"{TASKS_ROOT}/{task_id}/output", init_parent_folder, init_model_file)
+        else:
+            init_model_path = init_model_file
+    else:
+        init_model_path = init_model_file
+
+    num_edges = len(edge_data_paths)
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_federated_train"
+
+    if check_output_exists(task_id, 'link11_federated_train', 'global_model.pth'):
+        print(f"[跳过] 联邦学习模型已存在")
+        return {'status': 'cached'}
+
+    print(f"[配置] 边侧数: {num_edges}, 轮数: {num_rounds}, 本地epoch: {local_epochs}")
+
+    edge_train_loaders = []
+    edge_test_loaders = []
+    edge_sizes = []
+
+    for i, path in enumerate(edge_data_paths):
+        print(f"[加载] 边侧 {i+1} 数据: {path}")
+        splits = _load_split_data(path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        edge_train_loaders.append(_make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type))
+        edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type))
+        edge_sizes.append(len(X_train))
+
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+
+    edge_kd_dir = f"{TASKS_ROOT}/{task_id}/output/link11_edge_kd_2"
+    per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth')
+                      for i in range(num_edges)]
+    has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
+
+    if has_per_edge:
+        total_weight = sum(edge_sizes)
+        avg_state = None
+        resolved_edge_model_type = edge_model_type
+        for i in range(num_edges):
+            ckpt = torch.load(per_edge_paths[i], map_location=device)
+            if isinstance(ckpt, dict) and ckpt.get('model_type'):
+                resolved_edge_model_type = ckpt.get('model_type')
+                internal_cfg = ckpt.get('internal_cfg')
+            state = ckpt['model_state_dict'] if isinstance(ckpt, dict) and 'model_state_dict' in ckpt else ckpt
+            w = edge_sizes[i] / total_weight
+            if avg_state is None:
+                avg_state = {k: v.float() * w for k, v in state.items()}
+            else:
+                for k in avg_state:
+                    avg_state[k] += state[k].float() * w
+
+        if dataset_type == 'ratr' and resolved_edge_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_edge_model_type
+        global_model.load_state_dict(avg_state)
+        print(f"[模型] 从 {num_edges} 个边侧 KD 模型聚合初始化全局模型")
+    elif init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            global_model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            global_model.load_state_dict(checkpoint)
+        print(f"[模型] 从 {init_model_path} 初始化全局模型（后备）")
+    else:
+        print(f"[模型] 随机初始化全局模型: {edge_model_type}")
+
+    global_model.to(device)
+    criterion = nn.CrossEntropyLoss()
+
+    best_avg_acc = 0.0
+    best_global_state = None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+
+    print(f"\n[训练] 开始联邦学习...")
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_states = []
+        edge_weights = []
+        edge_accs = []
+
+        for e in range(num_edges):
+            if dataset_type == 'ratr' and edge_model_type == 'real_resnet7_ratr_cp':
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            else:
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+            local_model.load_state_dict(global_model.state_dict())
+            local_model.to(device)
+
+            local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+
+            for le in range(1, local_epochs + 1):
+                _train_one_epoch(
+                    local_model, edge_train_loaders[e], local_optimizer, criterion, device,
+                    epoch_info=(le, local_epochs))
+
+            _, test_acc = _evaluate(local_model, edge_test_loaders[e], criterion, device)
+            edge_accs.append(test_acc)
+            print(f"    Round {round_idx} 边{e+1}: 本地训练完成, 测试准确率: {test_acc*100:.2f}%",
+                  flush=True)
+
+            edge_states.append(copy.deepcopy(local_model.state_dict()))
+            edge_weights.append(edge_sizes[e])
+
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(
+                    edge_states[e][key] * (edge_weights[e] / total_weight)
+                    for e in range(num_edges)
+                )
+
+        global_model.load_state_dict(global_state)
+
+        avg_acc = np.mean(edge_accs)
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+
+        if round_idx % 2 == 0 or round_idx == num_rounds:
+            edge_acc_str = ", ".join([f"E{e+1}:{a*100:.1f}%" for e, a in enumerate(edge_accs)])
+            print(f"  Round {round_idx}/{num_rounds} | Avg: {avg_acc*100:.2f}% | {edge_acc_str}")
+
+    total_time = time.time() - start_time
+    print(f"[训练] 完成! 耗时: {total_time:.1f}s, 最佳平均准确率: {best_avg_acc*100:.2f}%")
+
+    os.makedirs(output_dir, exist_ok=True)
+    torch.save({
+        'model_state_dict': best_global_state,
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_avg_acc': best_avg_acc,
+    }, os.path.join(output_dir, 'global_model.pth'))
+
+    for e in range(num_edges):
+        torch.save({
+            'model_state_dict': edge_states[e],
+            'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+        }, os.path.join(output_dir, f'edge_{e+1}_model.pth'))
+
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"本地epoch: {local_epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n\n")
+        f.write("各轮详情:\n")
+        for r, avg, accs in zip(history['round'], history['avg_test_acc'], history['edge_test_accs']):
+            edge_str = ", ".join([f"E{e+1}:{a*100:.1f}%" for e, a in enumerate(accs)])
+            f.write(f"  Round {r}: Avg={avg*100:.2f}% | {edge_str}\n")
+
+    print(f"[完成] 联邦学习模型已保存到 {output_dir}")
+    return {
+        'status': 'success',
+        'best_avg_acc': float(best_avg_acc),
+        'num_edges': num_edges,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
 def link11_federated_cloud_callback(task_id, config_name=None, **kwargs):
     """link11 联邦学习 - 云侧聚合"""
-    return federated_cloud_callback(task_id, config_name=config_name or 'link11_federated_cloud', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[联邦学习-云侧] 聚合服务启动")
+    print(f"{'='*60}")
+
+    config_name = config_name or 'link11_federated_cloud'
+    config = _load_federated_config(task_id, config_name)
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name')
+    init_model_parent = input_data.get('parent_folder')
+
+    if init_model_file and init_model_parent:
+        init_model_path = f"{TASKS_ROOT}/{task_id}/output/{init_model_parent}/{init_model_file}"
+    else:
+        init_model_path = config.get('init_model_path', None)
+    timeout = config.get('sync_timeout', 1800)
+
+    num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_federated_train"
+    os.makedirs(output_dir, exist_ok=True)
+
+    if check_output_exists(task_id, 'link11_federated_train', 'global_model.pth'):
+        print(f"[跳过] 联邦学习全局模型已存在")
+        return {'status': 'cached'}
+
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+
+    if init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device, weights_only=False)
+        resolved_model_type = edge_model_type
+        if isinstance(checkpoint, dict) and checkpoint.get('model_type'):
+            resolved_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_model_type
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            global_model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            global_model.load_state_dict(checkpoint)
+        print(f"[模型] 从 {init_model_path} 初始化全局模型")
+    else:
+        print(f"[模型] 随机初始化全局模型: {edge_model_type}")
+
+    global_model.to(device)
+
+    round0_path = os.path.join(output_dir, 'global_model_round_0.pth')
+    torch.save({
+        'model_state_dict': global_model.state_dict(),
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+    }, round0_path)
+    print(f"[保存] 初始全局模型: {round0_path}")
+    print(f"[配置] 边侧数: {num_edges}, 轮数: {num_rounds}")
+
+    best_avg_acc = 0.0
+    best_global_state = None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+
+    print(f"\n[聚合] 开始等待各边侧训练结果...")
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        print(f"\n--- Round {round_idx}/{num_rounds} ---")
+
+        edge_round_paths = []
+        for e in range(1, num_edges + 1):
+            edge_path = os.path.join(output_dir, f'edge_{e}_round_{round_idx}.pth')
+            print(f"  [等待] edge_{e}_round_{round_idx}.pth ...")
+            _wait_for_file(edge_path, timeout=timeout)
+            edge_round_paths.append(edge_path)
+            print(f"  [收到] edge_{e}_round_{round_idx}.pth")
+
+        edge_states = []
+        edge_weights = []
+        edge_accs = []
+        for path in edge_round_paths:
+            ckpt = torch.load(path, map_location=device, weights_only=False)
+            edge_states.append(ckpt['model_state_dict'])
+            edge_weights.append(ckpt.get('num_samples', 1))
+            edge_accs.append(ckpt.get('test_acc', 0.0))
+
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(
+                    edge_states[e][key] * (edge_weights[e] / total_weight)
+                    for e in range(num_edges)
+                )
+        global_model.load_state_dict(global_state)
+
+        round_path = os.path.join(output_dir, f'global_model_round_{round_idx}.pth')
+        torch.save({
+            'model_state_dict': global_state,
+            'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+        }, round_path)
+
+        avg_acc = np.mean(edge_accs) if edge_accs and edge_accs[0] > 0 else 0.0
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+
+        edge_acc_str = ", ".join([f"E{e+1}:{a*100:.1f}%" for e, a in enumerate(edge_accs)])
+        print(f"  [聚合完成] Round {round_idx} | Avg: {avg_acc*100:.2f}% | {edge_acc_str}")
+
+    total_time = time.time() - start_time
+
+    if best_global_state is None:
+        best_global_state = global_model.state_dict()
+
+    torch.save({
+        'model_state_dict': best_global_state,
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_avg_acc': best_avg_acc,
+    }, os.path.join(output_dir, 'global_model.pth'))
+
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_server_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习聚合报告（分布式模式-云侧）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"聚合耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n\n")
+        f.write("各轮详情:\n")
+        for r, avg, accs in zip(history['round'], history['avg_test_acc'], history['edge_test_accs']):
+            edge_str = ", ".join([f"E{e+1}:{a*100:.1f}%" for e, a in enumerate(accs)])
+            f.write(f"  Round {r}: Avg={avg*100:.2f}% | {edge_str}\n")
+
+    print(f"\n[完成] 联邦聚合完成! 耗时: {total_time:.1f}s, 最佳准确率: {best_avg_acc*100:.2f}%")
+    return {
+        'status': 'success',
+        'best_avg_acc': float(best_avg_acc),
+        'num_edges': num_edges,
+        'num_rounds': num_rounds,
+    }
 
 
 @register_task
@@ -1845,13 +2732,247 @@ def link11_federated_edge_callback(task_id, edge_id=None, config_name=None, **kw
 @register_task
 def link11_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """link11 联邦学习 - 边1"""
-    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_federated_edge_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'link11_federated_edge_1'
+        edge_id = 1
+
+    config_name_resolved = config_name
+    if config_name_resolved is None:
+        return {'status': 'error', 'message': '需要指定 --config link11_federated_edge_N 或 --edge_id 参数'}
+
+    config = _load_federated_config(task_id, config_name_resolved)
+
+    edge_id = config.get('edge_id', edge_id)
+    if edge_id is None:
+        return {'status': 'error', 'message': '配置文件缺少 edge_id'}
+
+    print(f"\n{'='*60}")
+    print(f"[联邦学习-边侧] 边 {edge_id} 本地训练启动")
+    print(f"{'='*60}")
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+
+    output_dir = config.get('sync_dir',
+        f"{TASKS_ROOT}/{task_id}/output/link11_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        print(f"[跳过] 边 {edge_id} 最终模型已存在: {final_model_path}")
+        return {'status': 'cached'}
+
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    print(f"[加载] 边 {edge_id} 数据: {data_path}")
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+    print(f"[加载] 训练集: {num_samples} 样本, 测试集: {len(X_test)} 样本")
+
+    criterion = nn.CrossEntropyLoss()
+
+    print(f"[配置] 轮数: {num_rounds}, 本地epoch: {local_epochs}")
+    print(f"\n[训练] 开始本地训练...")
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            print(f"  Round {round_idx}: 已存在，跳过")
+            continue
+
+        prev_round = round_idx - 1
+        global_round_path = os.path.join(output_dir, f'global_model_round_{prev_round}.pth')
+        print(f"  Round {round_idx}: 等待 global_model_round_{prev_round}.pth ...")
+        _wait_for_file(global_round_path, timeout=timeout)
+
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type) if isinstance(ckpt, dict) else edge_model_type
+        internal_cfg = ckpt.get('internal_cfg') if isinstance(ckpt, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(
+                local_model, train_loader, local_optimizer, criterion, device,
+                epoch_info=(ep, local_epochs))
+
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+
+        torch.save({
+            'model_state_dict': local_model.state_dict(),
+            'model_type': resolved_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'num_samples': num_samples,
+            'test_acc': test_acc,
+            'edge_id': edge_id,
+            'round': round_idx,
+        }, edge_round_path)
+
+        print(f"  Round {round_idx}/{num_rounds} | 边{edge_id} 测试准确率: {test_acc*100:.2f}%")
+
+    total_time = time.time() - start_time
+
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({
+            'model_state_dict': last_ckpt['model_state_dict'],
+            'model_type': last_ckpt.get('model_type', edge_model_type),
+            'internal_cfg': last_ckpt.get('internal_cfg', None),
+            'num_classes': num_classes,
+        }, final_model_path)
+
+    print(f"\n[完成] 边 {edge_id} 本地训练完成! 耗时: {total_time:.1f}s")
+    return {
+        'status': 'success',
+        'edge_id': edge_id,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
 def link11_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """link11 联邦学习 - 边2"""
-    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_federated_edge_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'link11_federated_edge_2'
+        edge_id = 2
+
+    config_name_resolved = config_name
+    if config_name_resolved is None:
+        return {'status': 'error', 'message': '需要指定 --config link11_federated_edge_N 或 --edge_id 参数'}
+
+    config = _load_federated_config(task_id, config_name_resolved)
+
+    edge_id = config.get('edge_id', edge_id)
+    if edge_id is None:
+        return {'status': 'error', 'message': '配置文件缺少 edge_id'}
+
+    print(f"\n{'='*60}")
+    print(f"[联邦学习-边侧] 边 {edge_id} 本地训练启动")
+    print(f"{'='*60}")
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+
+    output_dir = config.get('sync_dir',
+        f"{TASKS_ROOT}/{task_id}/output/link11_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        print(f"[跳过] 边 {edge_id} 最终模型已存在: {final_model_path}")
+        return {'status': 'cached'}
+
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    print(f"[加载] 边 {edge_id} 数据: {data_path}")
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+    print(f"[加载] 训练集: {num_samples} 样本, 测试集: {len(X_test)} 样本")
+
+    criterion = nn.CrossEntropyLoss()
+
+    print(f"[配置] 轮数: {num_rounds}, 本地epoch: {local_epochs}")
+    print(f"\n[训练] 开始本地训练...")
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            print(f"  Round {round_idx}: 已存在，跳过")
+            continue
+
+        prev_round = round_idx - 1
+        global_round_path = os.path.join(output_dir, f'global_model_round_{prev_round}.pth')
+        print(f"  Round {round_idx}: 等待 global_model_round_{prev_round}.pth ...")
+        _wait_for_file(global_round_path, timeout=timeout)
+
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type) if isinstance(ckpt, dict) else edge_model_type
+        internal_cfg = ckpt.get('internal_cfg') if isinstance(ckpt, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(
+                local_model, train_loader, local_optimizer, criterion, device,
+                epoch_info=(ep, local_epochs))
+
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+
+        torch.save({
+            'model_state_dict': local_model.state_dict(),
+            'model_type': resolved_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'num_samples': num_samples,
+            'test_acc': test_acc,
+            'edge_id': edge_id,
+            'round': round_idx,
+        }, edge_round_path)
+
+        print(f"  Round {round_idx}/{num_rounds} | 边{edge_id} 测试准确率: {test_acc*100:.2f}%")
+
+    total_time = time.time() - start_time
+
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({
+            'model_state_dict': last_ckpt['model_state_dict'],
+            'model_type': last_ckpt.get('model_type', edge_model_type),
+            'internal_cfg': last_ckpt.get('internal_cfg', None),
+            'num_classes': num_classes,
+        }, final_model_path)
+
+    print(f"\n[完成] 边 {edge_id} 本地训练完成! 耗时: {total_time:.1f}s")
+    return {
+        'status': 'success',
+        'edge_id': edge_id,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
@@ -1863,7 +2984,124 @@ def link11_federated_server_callback(task_id, **kwargs):
 @register_task
 def rml2016_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """rml2016 云侧预训练教师模型"""
-    return cloud_pretrain_callback(task_id, config_name=config_name or 'rml2016_cloud_pretrain', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 预训练教师模型")
+    print(f"{'='*60}")
+
+    config_name = config_name or 'rml2016_cloud_pretrain'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data = config.get('input_data', {})
+    data_path = input_data.get('data_path', config.get('data_path'))
+    if not data_path:
+        return {'status': 'error', 'message': '缺少参数: data_path（需在 input_data 或顶层配置中指定）'}
+    dataset_type = config['dataset_type']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    epochs = config['epochs']
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    weight_decay = config.get('weight_decay', 1e-4)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_cloud_pretrain"
+    if check_output_exists(task_id, 'rml2016_cloud_pretrain', 'teacher_model.pth'):
+        print(f"[跳过] 教师模型已存在")
+        return {'status': 'cached'}
+
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_val, y_val = splits['val']
+    X_test, y_test = splits['test']
+
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+
+    model = create_model_by_type(model_type, num_classes, dataset_type)
+    model.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    best_val_acc = 0.0
+    best_model_state = None
+    best_epoch = 0
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
+
+    os.makedirs(output_dir, exist_ok=True)
+    best_ckpt_path = os.path.join(output_dir, 'teacher_best.pth')
+    start_time = time.time()
+
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc = _train_one_epoch(
+            model, train_loader, optimizer, criterion, device,
+            epoch_info=(epoch, epochs))
+        val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
+        scheduler.step()
+
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['val_loss'].append(val_loss)
+        history['val_acc'].append(val_acc)
+
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            torch.save({
+                'model_state_dict': best_model_state,
+                'model_type': model_type,
+                'num_classes': num_classes,
+                'dataset_type': dataset_type,
+                'best_val_acc': best_val_acc,
+                'epoch': epoch,
+            }, best_ckpt_path)
+
+    total_time = time.time() - start_time
+
+    model.load_state_dict(best_model_state)
+    _, test_acc = _evaluate(model, test_loader, criterion, device)
+
+    torch.save({
+        'model_state_dict': best_model_state,
+        'model_type': model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_val_acc': best_val_acc,
+        'test_acc': test_acc,
+        'epoch': best_epoch,
+    }, os.path.join(output_dir, 'teacher_model.pth'))
+    if os.path.exists(best_ckpt_path):
+        os.remove(best_ckpt_path)
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_cloud_pretrain"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'pretrain_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n教师模型预训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳验证准确率: {best_val_acc*100:.2f}%\n")
+        f.write(f"测试准确率: {test_acc*100:.2f}%\n")
+
+    return {
+        'status': 'success',
+        'best_val_acc': float(best_val_acc),
+        'test_acc': float(test_acc),
+        'train_time': total_time,
+    }
 
 
 @register_task
@@ -1884,25 +3122,658 @@ def rml2016_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
 @register_task
 def rml2016_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """rml2016 知识蒸馏 - 边1"""
-    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_edge_kd_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'rml2016_edge_kd_1'
+        edge_id = 1
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_kd_1"
+
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'rml2016_edge_kd_1', 'student_model.pth'):
+                print(f"[跳过] 学生模型已存在")
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] student_edge_{edge_id}.pth 已存在")
+            return {'status': 'cached'}
+
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}", dataset_type=dataset_type)
+
+        torch.save({
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        all_results.append((eid, kd_result))
+
+    if single_edge_mode:
+        eid, r = all_results[0]
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_edge_kd_1"
+    os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
+    with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n知识蒸馏训练报告（分别蒸馏）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"学生模型: {student_model_type}\n")
+        f.write(f"教师模型: {teacher_model_type}\n")
+        f.write(f"蒸馏参数: alpha={alpha}, temperature={temperature}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        for eid, r in all_results:
+            f.write(f"边侧 {eid}: 最佳准确率 {r['best_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
+
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
 
 
 @register_task
 def rml2016_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """rml2016 知识蒸馏 - 边2"""
-    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_edge_kd_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'rml2016_edge_kd_2'
+        edge_id = 2
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_kd_2"
+
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'rml2016_edge_kd_2', 'student_model.pth'):
+                print(f"[跳过] 学生模型已存在")
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] student_edge_{edge_id}.pth 已存在")
+            return {'status': 'cached'}
+
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}", dataset_type=dataset_type)
+
+        torch.save({
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        all_results.append((eid, kd_result))
+
+    if single_edge_mode:
+        eid, r = all_results[0]
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_edge_kd_2"
+    os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
+    with open(os.path.join(result_dir, 'kd_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n知识蒸馏训练报告（分别蒸馏）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"学生模型: {student_model_type}\n")
+        f.write(f"教师模型: {teacher_model_type}\n")
+        f.write(f"蒸馏参数: alpha={alpha}, temperature={temperature}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        for eid, r in all_results:
+            f.write(f"边侧 {eid}: 最佳准确率 {r['best_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
+
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
 
 
 @register_task
 def rml2016_federated_train_callback(task_id, config_name=None, **kwargs):
     """rml2016 联邦学习训练"""
-    return federated_train_callback(task_id, config_name=config_name or 'rml2016_federated_train', **kwargs)
+    config_name_used = config_name or 'rml2016_federated_train'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name_used}.json"
+    param_list = ['dataset_type', 'edge_model_type', 'num_classes',
+                  'num_rounds', 'local_epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data_fed = config.get('input_data', {})
+    edge_data_paths = input_data_fed.get('edge_data_paths',
+        config.get('edge_data_paths'))
+    if not edge_data_paths:
+        return {'status': 'error', 'message': '缺少参数: edge_data_paths（需在 input_data 或顶层配置中指定）'}
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config['local_epochs']
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name', config.get('file_name', None))
+    init_parent_folder = input_data.get('parent_folder', None)
+    if init_model_file and init_parent_folder:
+        if (not os.path.isabs(init_model_file)) and (os.path.dirname(init_model_file) == ''):
+            init_model_path = os.path.join(f"{TASKS_ROOT}/{task_id}/output", init_parent_folder, init_model_file)
+        else:
+            init_model_path = init_model_file
+    else:
+        init_model_path = init_model_file
+
+    num_edges = len(edge_data_paths)
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_federated_train"
+
+    if check_output_exists(task_id, 'rml2016_federated_train', 'global_model.pth'):
+        print(f"[跳过] 联邦学习模型已存在")
+        return {'status': 'cached'}
+
+    edge_train_loaders = []
+    edge_test_loaders = []
+    edge_sizes = []
+    for path in edge_data_paths:
+        splits = _load_split_data(path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        edge_train_loaders.append(_make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type))
+        edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type))
+        edge_sizes.append(len(X_train))
+
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+
+    edge_kd_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_kd_2"
+    per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth')
+                      for i in range(num_edges)]
+    has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
+
+    if has_per_edge:
+        total_weight = sum(edge_sizes)
+        avg_state = None
+        resolved_edge_model_type = edge_model_type
+        for i in range(num_edges):
+            ckpt = torch.load(per_edge_paths[i], map_location=device)
+            if isinstance(ckpt, dict) and ckpt.get('model_type'):
+                resolved_edge_model_type = ckpt.get('model_type')
+                internal_cfg = ckpt.get('internal_cfg')
+            state = ckpt['model_state_dict'] if isinstance(ckpt, dict) and 'model_state_dict' in ckpt else ckpt
+            w = edge_sizes[i] / total_weight
+            if avg_state is None:
+                avg_state = {k: v.float() * w for k, v in state.items()}
+            else:
+                for k in avg_state:
+                    avg_state[k] += state[k].float() * w
+
+        if dataset_type == 'ratr' and resolved_edge_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_edge_model_type
+        global_model.load_state_dict(avg_state)
+    elif init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            global_model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            global_model.load_state_dict(checkpoint)
+
+    global_model.to(device)
+    criterion = nn.CrossEntropyLoss()
+
+    best_avg_acc = 0.0
+    best_global_state = None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_states = []
+        edge_weights = []
+        edge_accs = []
+
+        for e in range(num_edges):
+            if dataset_type == 'ratr' and edge_model_type == 'real_resnet7_ratr_cp':
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            else:
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+            local_model.load_state_dict(global_model.state_dict())
+            local_model.to(device)
+            local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+
+            for le in range(1, local_epochs + 1):
+                _train_one_epoch(
+                    local_model, edge_train_loaders[e], local_optimizer, criterion, device,
+                    epoch_info=(le, local_epochs))
+
+            _, test_acc = _evaluate(local_model, edge_test_loaders[e], criterion, device)
+            edge_accs.append(test_acc)
+            edge_states.append(copy.deepcopy(local_model.state_dict()))
+            edge_weights.append(edge_sizes[e])
+
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(
+                    edge_states[e][key] * (edge_weights[e] / total_weight)
+                    for e in range(num_edges)
+                )
+        global_model.load_state_dict(global_state)
+
+        avg_acc = np.mean(edge_accs)
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+
+    total_time = time.time() - start_time
+
+    os.makedirs(output_dir, exist_ok=True)
+    torch.save({
+        'model_state_dict': best_global_state,
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_avg_acc': best_avg_acc,
+    }, os.path.join(output_dir, 'global_model.pth'))
+
+    for e in range(num_edges):
+        torch.save({
+            'model_state_dict': edge_states[e],
+            'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+        }, os.path.join(output_dir, f'edge_{e+1}_model.pth'))
+
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"本地epoch: {local_epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n\n")
+
+    return {
+        'status': 'success',
+        'best_avg_acc': float(best_avg_acc),
+        'num_edges': num_edges,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
 def rml2016_federated_cloud_callback(task_id, config_name=None, **kwargs):
     """rml2016 联邦学习 - 云侧聚合"""
-    return federated_cloud_callback(task_id, config_name=config_name or 'rml2016_federated_cloud', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[联邦学习-云侧] 聚合服务启动")
+    print(f"{'='*60}")
+
+    config_name = config_name or 'rml2016_federated_cloud'
+    config = _load_federated_config(task_id, config_name)
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name')
+    init_model_parent = input_data.get('parent_folder')
+
+    if init_model_file and init_model_parent:
+        init_model_path = f"{TASKS_ROOT}/{task_id}/output/{init_model_parent}/{init_model_file}"
+    else:
+        init_model_path = config.get('init_model_path', None)
+    timeout = config.get('sync_timeout', 1800)
+
+    num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_federated_train"
+    os.makedirs(output_dir, exist_ok=True)
+
+    if check_output_exists(task_id, 'rml2016_federated_train', 'global_model.pth'):
+        print(f"[跳过] 联邦学习全局模型已存在")
+        return {'status': 'cached'}
+
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+
+    if init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device, weights_only=False)
+        resolved_model_type = edge_model_type
+        if isinstance(checkpoint, dict) and checkpoint.get('model_type'):
+            resolved_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_model_type
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            global_model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            global_model.load_state_dict(checkpoint)
+    global_model.to(device)
+
+    round0_path = os.path.join(output_dir, 'global_model_round_0.pth')
+    torch.save({
+        'model_state_dict': global_model.state_dict(),
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+    }, round0_path)
+
+    best_avg_acc = 0.0
+    best_global_state = None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_paths = []
+        for e in range(1, num_edges + 1):
+            edge_path = os.path.join(output_dir, f'edge_{e}_round_{round_idx}.pth')
+            _wait_for_file(edge_path, timeout=timeout)
+            edge_round_paths.append(edge_path)
+
+        edge_states = []
+        edge_weights = []
+        edge_accs = []
+        for path in edge_round_paths:
+            ckpt = torch.load(path, map_location=device, weights_only=False)
+            edge_states.append(ckpt['model_state_dict'])
+            edge_weights.append(ckpt.get('num_samples', 1))
+            edge_accs.append(ckpt.get('test_acc', 0.0))
+
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(
+                    edge_states[e][key] * (edge_weights[e] / total_weight)
+                    for e in range(num_edges)
+                )
+        global_model.load_state_dict(global_state)
+
+        round_path = os.path.join(output_dir, f'global_model_round_{round_idx}.pth')
+        torch.save({
+            'model_state_dict': global_state,
+            'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+        }, round_path)
+
+        avg_acc = np.mean(edge_accs) if edge_accs and edge_accs[0] > 0 else 0.0
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+
+    total_time = time.time() - start_time
+    if best_global_state is None:
+        best_global_state = global_model.state_dict()
+
+    torch.save({
+        'model_state_dict': best_global_state,
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_avg_acc': best_avg_acc,
+    }, os.path.join(output_dir, 'global_model.pth'))
+
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_server_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习聚合报告（分布式模式-云侧）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"聚合耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n")
+
+    return {
+        'status': 'success',
+        'best_avg_acc': float(best_avg_acc),
+        'num_edges': num_edges,
+        'num_rounds': num_rounds,
+    }
 
 
 @register_task
@@ -1923,13 +3794,211 @@ def rml2016_federated_edge_callback(task_id, edge_id=None, config_name=None, **k
 @register_task
 def rml2016_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """rml2016 联邦学习 - 边1"""
-    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_federated_edge_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'rml2016_federated_edge_1'
+        edge_id = 1
+
+    config_name_resolved = config_name
+    if config_name_resolved is None:
+        return {'status': 'error', 'message': '需要指定 --config rml2016_federated_edge_N 或 --edge_id 参数'}
+
+    config = _load_federated_config(task_id, config_name_resolved)
+
+    edge_id = config.get('edge_id', edge_id)
+    if edge_id is None:
+        return {'status': 'error', 'message': '配置文件缺少 edge_id'}
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+
+    output_dir = config.get('sync_dir',
+        f"{TASKS_ROOT}/{task_id}/output/rml2016_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        return {'status': 'cached'}
+
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+
+    criterion = nn.CrossEntropyLoss()
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            continue
+
+        prev_round = round_idx - 1
+        global_round_path = os.path.join(output_dir, f'global_model_round_{prev_round}.pth')
+        _wait_for_file(global_round_path, timeout=timeout)
+
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type) if isinstance(ckpt, dict) else edge_model_type
+        internal_cfg = ckpt.get('internal_cfg') if isinstance(ckpt, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(
+                local_model, train_loader, local_optimizer, criterion, device,
+                epoch_info=(ep, local_epochs))
+
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+        torch.save({
+            'model_state_dict': local_model.state_dict(),
+            'model_type': resolved_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'num_samples': num_samples,
+            'test_acc': test_acc,
+            'edge_id': edge_id,
+            'round': round_idx,
+        }, edge_round_path)
+
+    total_time = time.time() - start_time
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({
+            'model_state_dict': last_ckpt['model_state_dict'],
+            'model_type': last_ckpt.get('model_type', edge_model_type),
+            'internal_cfg': last_ckpt.get('internal_cfg', None),
+            'num_classes': num_classes,
+        }, final_model_path)
+
+    return {
+        'status': 'success',
+        'edge_id': edge_id,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
 def rml2016_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """rml2016 联邦学习 - 边2"""
-    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_federated_edge_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'rml2016_federated_edge_2'
+        edge_id = 2
+
+    config_name_resolved = config_name
+    if config_name_resolved is None:
+        return {'status': 'error', 'message': '需要指定 --config rml2016_federated_edge_N 或 --edge_id 参数'}
+
+    config = _load_federated_config(task_id, config_name_resolved)
+
+    edge_id = config.get('edge_id', edge_id)
+    if edge_id is None:
+        return {'status': 'error', 'message': '配置文件缺少 edge_id'}
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+
+    output_dir = config.get('sync_dir',
+        f"{TASKS_ROOT}/{task_id}/output/rml2016_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        return {'status': 'cached'}
+
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+
+    criterion = nn.CrossEntropyLoss()
+    start_time = time.time()
+
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            continue
+
+        prev_round = round_idx - 1
+        global_round_path = os.path.join(output_dir, f'global_model_round_{prev_round}.pth')
+        _wait_for_file(global_round_path, timeout=timeout)
+
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type) if isinstance(ckpt, dict) else edge_model_type
+        internal_cfg = ckpt.get('internal_cfg') if isinstance(ckpt, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(
+                local_model, train_loader, local_optimizer, criterion, device,
+                epoch_info=(ep, local_epochs))
+
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+        torch.save({
+            'model_state_dict': local_model.state_dict(),
+            'model_type': resolved_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'num_samples': num_samples,
+            'test_acc': test_acc,
+            'edge_id': edge_id,
+            'round': round_idx,
+        }, edge_round_path)
+
+    total_time = time.time() - start_time
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({
+            'model_state_dict': last_ckpt['model_state_dict'],
+            'model_type': last_ckpt.get('model_type', edge_model_type),
+            'internal_cfg': last_ckpt.get('internal_cfg', None),
+            'num_classes': num_classes,
+        }, final_model_path)
+
+    return {
+        'status': 'success',
+        'edge_id': edge_id,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
@@ -1941,7 +4010,124 @@ def rml2016_federated_server_callback(task_id, **kwargs):
 @register_task
 def radar_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """radar 云侧预训练教师模型"""
-    return cloud_pretrain_callback(task_id, config_name=config_name or 'radar_cloud_pretrain', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 预训练教师模型")
+    print(f"{'='*60}")
+
+    config_name = config_name or 'radar_cloud_pretrain'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data = config.get('input_data', {})
+    data_path = input_data.get('data_path', config.get('data_path'))
+    if not data_path:
+        return {'status': 'error', 'message': '缺少参数: data_path（需在 input_data 或顶层配置中指定）'}
+    dataset_type = config['dataset_type']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    epochs = config['epochs']
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    weight_decay = config.get('weight_decay', 1e-4)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_cloud_pretrain"
+    if check_output_exists(task_id, 'radar_cloud_pretrain', 'teacher_model.pth'):
+        print(f"[跳过] 教师模型已存在")
+        return {'status': 'cached'}
+
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_val, y_val = splits['val']
+    X_test, y_test = splits['test']
+
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+
+    model = create_model_by_type(model_type, num_classes, dataset_type)
+    model.to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+    best_val_acc = 0.0
+    best_model_state = None
+    best_epoch = 0
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
+
+    os.makedirs(output_dir, exist_ok=True)
+    best_ckpt_path = os.path.join(output_dir, 'teacher_best.pth')
+    start_time = time.time()
+
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc = _train_one_epoch(
+            model, train_loader, optimizer, criterion, device,
+            epoch_info=(epoch, epochs))
+        val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
+        scheduler.step()
+
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['val_loss'].append(val_loss)
+        history['val_acc'].append(val_acc)
+
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            torch.save({
+                'model_state_dict': best_model_state,
+                'model_type': model_type,
+                'num_classes': num_classes,
+                'dataset_type': dataset_type,
+                'best_val_acc': best_val_acc,
+                'epoch': epoch,
+            }, best_ckpt_path)
+
+    total_time = time.time() - start_time
+
+    model.load_state_dict(best_model_state)
+    _, test_acc = _evaluate(model, test_loader, criterion, device)
+
+    torch.save({
+        'model_state_dict': best_model_state,
+        'model_type': model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_val_acc': best_val_acc,
+        'test_acc': test_acc,
+        'epoch': best_epoch,
+    }, os.path.join(output_dir, 'teacher_model.pth'))
+    if os.path.exists(best_ckpt_path):
+        os.remove(best_ckpt_path)
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_cloud_pretrain"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'pretrain_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n教师模型预训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳验证准确率: {best_val_acc*100:.2f}%\n")
+        f.write(f"测试准确率: {test_acc*100:.2f}%\n")
+
+    return {
+        'status': 'success',
+        'best_val_acc': float(best_val_acc),
+        'test_acc': float(test_acc),
+        'train_time': total_time,
+    }
 
 
 @register_task
@@ -1962,25 +4148,557 @@ def radar_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
 @register_task
 def radar_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """radar 知识蒸馏 - 边1"""
-    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_edge_kd_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'radar_edge_kd_1'
+        edge_id = 1
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/radar_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/radar_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/radar_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_edge_kd_1"
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'radar_edge_kd_1', 'student_model.pth'):
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            return {'status': 'cached'}
+
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}", dataset_type=dataset_type)
+        torch.save({
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        all_results.append((eid, kd_result))
+
+    if single_edge_mode:
+        eid, r = all_results[0]
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_edge_kd_1"
+    os.makedirs(result_dir, exist_ok=True)
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
 
 
 @register_task
 def radar_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """radar 知识蒸馏 - 边2"""
-    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_edge_kd_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'radar_edge_kd_2'
+        edge_id = 2
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/radar_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/radar_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/radar_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_edge_kd_2"
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'radar_edge_kd_2', 'student_model.pth'):
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            return {'status': 'cached'}
+
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        soft_labels = _generate_soft_labels_from_teacher(
+            teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+        kd_result = _kd_train_one_student(
+            student, X_train, y_train, X_test, y_test, soft_labels,
+            alpha, temperature, epochs, batch_size, learning_rate,
+            device, label=f"边{eid}", dataset_type=dataset_type)
+        torch.save({
+            'model_state_dict': kd_result['best_state'],
+            'model_type': student_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_test_acc': kd_result['best_acc'],
+            'epoch': kd_result['best_epoch'],
+            'edge_id': eid,
+        }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        all_results.append((eid, kd_result))
+
+    if single_edge_mode:
+        eid, r = all_results[0]
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        }
+
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({
+        'model_state_dict': best_r['best_state'],
+        'model_type': student_model_type,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_test_acc': best_r['best_acc'],
+        'epoch': best_r['best_epoch'],
+    }, os.path.join(output_dir, 'student_model.pth'))
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_edge_kd_2"
+    os.makedirs(result_dir, exist_ok=True)
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_test_acc': float(r['best_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
 
 
 @register_task
 def radar_federated_train_callback(task_id, config_name=None, **kwargs):
     """radar 联邦学习训练"""
-    return federated_train_callback(task_id, config_name=config_name or 'radar_federated_train', **kwargs)
+    config_name_used = config_name or 'radar_federated_train'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name_used}.json"
+    param_list = ['dataset_type', 'edge_model_type', 'num_classes',
+                  'num_rounds', 'local_epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data_fed = config.get('input_data', {})
+    edge_data_paths = input_data_fed.get('edge_data_paths',
+        config.get('edge_data_paths'))
+    if not edge_data_paths:
+        return {'status': 'error', 'message': '缺少参数: edge_data_paths（需在 input_data 或顶层配置中指定）'}
+
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config['local_epochs']
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name', config.get('file_name', None))
+    init_parent_folder = input_data.get('parent_folder', None)
+    if init_model_file and init_parent_folder:
+        if (not os.path.isabs(init_model_file)) and (os.path.dirname(init_model_file) == ''):
+            init_model_path = os.path.join(f"{TASKS_ROOT}/{task_id}/output", init_parent_folder, init_model_file)
+        else:
+            init_model_path = init_model_file
+    else:
+        init_model_path = init_model_file
+
+    num_edges = len(edge_data_paths)
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_federated_train"
+
+    if check_output_exists(task_id, 'radar_federated_train', 'global_model.pth'):
+        return {'status': 'cached'}
+
+    edge_train_loaders = []
+    edge_test_loaders = []
+    edge_sizes = []
+    for path in edge_data_paths:
+        splits = _load_split_data(path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        edge_train_loaders.append(_make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type))
+        edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type))
+        edge_sizes.append(len(X_train))
+
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+    edge_kd_dir = f"{TASKS_ROOT}/{task_id}/output/radar_edge_kd_2"
+    per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth')
+                      for i in range(num_edges)]
+    has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
+
+    if has_per_edge:
+        total_weight = sum(edge_sizes)
+        avg_state = None
+        resolved_edge_model_type = edge_model_type
+        for i in range(num_edges):
+            ckpt = torch.load(per_edge_paths[i], map_location=device)
+            if isinstance(ckpt, dict) and ckpt.get('model_type'):
+                resolved_edge_model_type = ckpt.get('model_type')
+                internal_cfg = ckpt.get('internal_cfg')
+            state = ckpt['model_state_dict'] if isinstance(ckpt, dict) and 'model_state_dict' in ckpt else ckpt
+            w = edge_sizes[i] / total_weight
+            if avg_state is None:
+                avg_state = {k: v.float() * w for k, v in state.items()}
+            else:
+                for k in avg_state:
+                    avg_state[k] += state[k].float() * w
+        if dataset_type == 'ratr' and resolved_edge_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_edge_model_type
+        global_model.load_state_dict(avg_state)
+    elif init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device)
+        if 'model_state_dict' in checkpoint:
+            global_model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            global_model.load_state_dict(checkpoint)
+
+    global_model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    best_avg_acc = 0.0
+    best_global_state = None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_states = []
+        edge_weights = []
+        edge_accs = []
+        for e in range(num_edges):
+            if dataset_type == 'ratr' and edge_model_type == 'real_resnet7_ratr_cp':
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            else:
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+            local_model.load_state_dict(global_model.state_dict())
+            local_model.to(device)
+            local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+            for le in range(1, local_epochs + 1):
+                _train_one_epoch(local_model, edge_train_loaders[e], local_optimizer, criterion, device,
+                                 epoch_info=(le, local_epochs))
+            _, test_acc = _evaluate(local_model, edge_test_loaders[e], criterion, device)
+            edge_accs.append(test_acc)
+            edge_states.append(copy.deepcopy(local_model.state_dict()))
+            edge_weights.append(edge_sizes[e])
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(edge_states[e][key] * (edge_weights[e] / total_weight)
+                                        for e in range(num_edges))
+        global_model.load_state_dict(global_state)
+        avg_acc = np.mean(edge_accs)
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+    total_time = time.time() - start_time
+    os.makedirs(output_dir, exist_ok=True)
+    torch.save({
+        'model_state_dict': best_global_state,
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_avg_acc': best_avg_acc,
+    }, os.path.join(output_dir, 'global_model.pth'))
+    for e in range(num_edges):
+        torch.save({
+            'model_state_dict': edge_states[e],
+            'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+        }, os.path.join(output_dir, f'edge_{e+1}_model.pth'))
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"本地epoch: {local_epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n")
+    return {
+        'status': 'success',
+        'best_avg_acc': float(best_avg_acc),
+        'num_edges': num_edges,
+        'num_rounds': num_rounds,
+        'train_time': total_time,
+    }
 
 
 @register_task
 def radar_federated_cloud_callback(task_id, config_name=None, **kwargs):
     """radar 联邦学习 - 云侧聚合"""
-    return federated_cloud_callback(task_id, config_name=config_name or 'radar_federated_cloud', **kwargs)
+    config_name = config_name or 'radar_federated_cloud'
+    config = _load_federated_config(task_id, config_name)
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name')
+    init_model_parent = input_data.get('parent_folder')
+    init_model_path = f"{TASKS_ROOT}/{task_id}/output/{init_model_parent}/{init_model_file}" if init_model_file and init_model_parent else config.get('init_model_path', None)
+    timeout = config.get('sync_timeout', 1800)
+    num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_federated_train"
+    os.makedirs(output_dir, exist_ok=True)
+    if check_output_exists(task_id, 'radar_federated_train', 'global_model.pth'):
+        return {'status': 'cached'}
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+    if init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device, weights_only=False)
+        resolved_model_type = checkpoint.get('model_type', edge_model_type) if isinstance(checkpoint, dict) else edge_model_type
+        internal_cfg = checkpoint.get('internal_cfg') if isinstance(checkpoint, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_model_type
+        global_model.load_state_dict(checkpoint['model_state_dict'] if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint else checkpoint)
+    global_model.to(device)
+    torch.save({
+        'model_state_dict': global_model.state_dict(),
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+    }, os.path.join(output_dir, 'global_model_round_0.pth'))
+    best_avg_acc = 0.0
+    best_global_state = None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_paths = []
+        for e in range(1, num_edges + 1):
+            edge_path = os.path.join(output_dir, f'edge_{e}_round_{round_idx}.pth')
+            _wait_for_file(edge_path, timeout=timeout)
+            edge_round_paths.append(edge_path)
+        edge_states, edge_weights, edge_accs = [], [], []
+        for path in edge_round_paths:
+            ckpt = torch.load(path, map_location=device, weights_only=False)
+            edge_states.append(ckpt['model_state_dict'])
+            edge_weights.append(ckpt.get('num_samples', 1))
+            edge_accs.append(ckpt.get('test_acc', 0.0))
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(edge_states[e][key] * (edge_weights[e] / total_weight)
+                                        for e in range(num_edges))
+        global_model.load_state_dict(global_state)
+        torch.save({
+            'model_state_dict': global_state,
+            'model_type': edge_model_type,
+            'internal_cfg': internal_cfg,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+        }, os.path.join(output_dir, f'global_model_round_{round_idx}.pth'))
+        avg_acc = np.mean(edge_accs) if edge_accs and edge_accs[0] > 0 else 0.0
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+    total_time = time.time() - start_time
+    if best_global_state is None:
+        best_global_state = global_model.state_dict()
+    torch.save({
+        'model_state_dict': best_global_state,
+        'model_type': edge_model_type,
+        'internal_cfg': internal_cfg,
+        'num_classes': num_classes,
+        'dataset_type': dataset_type,
+        'best_avg_acc': best_avg_acc,
+    }, os.path.join(output_dir, 'global_model.pth'))
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_server_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习聚合报告（分布式模式-云侧）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"聚合耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n")
+    return {'status': 'success', 'best_avg_acc': float(best_avg_acc), 'num_edges': num_edges, 'num_rounds': num_rounds}
 
 
 @register_task
@@ -2001,13 +4719,133 @@ def radar_federated_edge_callback(task_id, edge_id=None, config_name=None, **kwa
 @register_task
 def radar_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """radar 联邦学习 - 边1"""
-    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_federated_edge_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'radar_federated_edge_1'
+        edge_id = 1
+    config = _load_federated_config(task_id, config_name)
+    edge_id = config.get('edge_id', edge_id)
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+    output_dir = config.get('sync_dir', f"{TASKS_ROOT}/{task_id}/output/radar_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        return {'status': 'cached'}
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+    criterion = nn.CrossEntropyLoss()
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            continue
+        global_round_path = os.path.join(output_dir, f'global_model_round_{round_idx-1}.pth')
+        _wait_for_file(global_round_path, timeout=timeout)
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type)
+        internal_cfg = ckpt.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(local_model, train_loader, local_optimizer, criterion, device,
+                             epoch_info=(ep, local_epochs))
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+        torch.save({'model_state_dict': local_model.state_dict(), 'model_type': resolved_model_type, 'internal_cfg': internal_cfg,
+                    'num_classes': num_classes, 'num_samples': num_samples, 'test_acc': test_acc,
+                    'edge_id': edge_id, 'round': round_idx}, edge_round_path)
+    total_time = time.time() - start_time
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({'model_state_dict': last_ckpt['model_state_dict'], 'model_type': last_ckpt.get('model_type', edge_model_type),
+                    'internal_cfg': last_ckpt.get('internal_cfg', None), 'num_classes': num_classes}, final_model_path)
+    return {'status': 'success', 'edge_id': edge_id, 'num_rounds': num_rounds, 'train_time': total_time}
 
 
 @register_task
 def radar_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """radar 联邦学习 - 边2"""
-    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_federated_edge_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'radar_federated_edge_2'
+        edge_id = 2
+    config = _load_federated_config(task_id, config_name)
+    edge_id = config.get('edge_id', edge_id)
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+    output_dir = config.get('sync_dir', f"{TASKS_ROOT}/{task_id}/output/radar_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        return {'status': 'cached'}
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+    criterion = nn.CrossEntropyLoss()
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            continue
+        global_round_path = os.path.join(output_dir, f'global_model_round_{round_idx-1}.pth')
+        _wait_for_file(global_round_path, timeout=timeout)
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type)
+        internal_cfg = ckpt.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(local_model, train_loader, local_optimizer, criterion, device,
+                             epoch_info=(ep, local_epochs))
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+        torch.save({'model_state_dict': local_model.state_dict(), 'model_type': resolved_model_type, 'internal_cfg': internal_cfg,
+                    'num_classes': num_classes, 'num_samples': num_samples, 'test_acc': test_acc,
+                    'edge_id': edge_id, 'round': round_idx}, edge_round_path)
+    total_time = time.time() - start_time
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({'model_state_dict': last_ckpt['model_state_dict'], 'model_type': last_ckpt.get('model_type', edge_model_type),
+                    'internal_cfg': last_ckpt.get('internal_cfg', None), 'num_classes': num_classes}, final_model_path)
+    return {'status': 'success', 'edge_id': edge_id, 'num_rounds': num_rounds, 'train_time': total_time}
 
 
 @register_task
@@ -2019,7 +4857,91 @@ def radar_federated_server_callback(task_id, **kwargs):
 @register_task
 def ratr_cloud_pretrain_callback(task_id, config_name=None, **kwargs):
     """ratr 云侧预训练教师模型"""
-    return cloud_pretrain_callback(task_id, config_name=config_name or 'ratr_cloud_pretrain', **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[云侧] 预训练教师模型")
+    print(f"{'='*60}")
+
+    config_name = config_name or 'ratr_cloud_pretrain'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    param_list = ['dataset_type', 'model_type', 'num_classes', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    input_data = config.get('input_data', {})
+    data_path = input_data.get('data_path', config.get('data_path'))
+    if not data_path:
+        return {'status': 'error', 'message': '缺少参数: data_path（需在 input_data 或顶层配置中指定）'}
+    dataset_type = config['dataset_type']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    epochs = config['epochs']
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    weight_decay = config.get('weight_decay', 1e-4)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_cloud_pretrain"
+    if check_output_exists(task_id, 'ratr_cloud_pretrain', 'teacher_model.pth'):
+        return {'status': 'cached'}
+
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_val, y_val = splits['val']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    model = create_model_by_type(model_type, num_classes, dataset_type)
+    model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    best_val_acc = 0.0
+    best_model_state = None
+    best_epoch = 0
+    history = {'train_loss': [], 'train_acc': [], 'val_loss': [], 'val_acc': []}
+    os.makedirs(output_dir, exist_ok=True)
+    best_ckpt_path = os.path.join(output_dir, 'teacher_best.pth')
+    start_time = time.time()
+    for epoch in range(1, epochs + 1):
+        train_loss, train_acc = _train_one_epoch(model, train_loader, optimizer, criterion, device, epoch_info=(epoch, epochs))
+        val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
+        scheduler.step()
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['val_loss'].append(val_loss)
+        history['val_acc'].append(val_acc)
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_model_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch
+            torch.save({'model_state_dict': best_model_state, 'model_type': model_type, 'num_classes': num_classes,
+                        'dataset_type': dataset_type, 'best_val_acc': best_val_acc, 'epoch': epoch}, best_ckpt_path)
+    total_time = time.time() - start_time
+    model.load_state_dict(best_model_state)
+    _, test_acc = _evaluate(model, test_loader, criterion, device)
+    torch.save({'model_state_dict': best_model_state, 'model_type': model_type, 'num_classes': num_classes,
+                'dataset_type': dataset_type, 'best_val_acc': best_val_acc, 'test_acc': test_acc, 'epoch': best_epoch},
+               os.path.join(output_dir, 'teacher_model.pth'))
+    if os.path.exists(best_ckpt_path):
+        os.remove(best_ckpt_path)
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_cloud_pretrain"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'pretrain_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n教师模型预训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳验证准确率: {best_val_acc*100:.2f}%\n")
+        f.write(f"测试准确率: {test_acc*100:.2f}%\n")
+    return {'status': 'success', 'best_val_acc': float(best_val_acc), 'test_acc': float(test_acc), 'train_time': total_time}
 
 
 @register_task
@@ -2040,25 +4962,451 @@ def ratr_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
 @register_task
 def ratr_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """ratr 知识蒸馏 - 边1"""
-    return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_edge_kd_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'ratr_edge_kd_1'
+        edge_id = 1
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/ratr_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/ratr_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/ratr_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_edge_kd_1"
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'ratr_edge_kd_1', 'student_model.pth'):
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            return {'status': 'cached'}
+
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        soft_labels = _generate_soft_labels_from_teacher(teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+        kd_result = _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels,
+                                          alpha, temperature, epochs, batch_size, learning_rate,
+                                          device, label=f"边{eid}", dataset_type=dataset_type)
+        torch.save({'model_state_dict': kd_result['best_state'], 'model_type': student_model_type, 'num_classes': num_classes,
+                    'dataset_type': dataset_type, 'best_test_acc': kd_result['best_acc'], 'epoch': kd_result['best_epoch'],
+                    'edge_id': eid}, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        all_results.append((eid, kd_result))
+    if single_edge_mode:
+        eid, r = all_results[0]
+        return {'status': 'success', 'edge_id': eid, 'best_test_acc': float(r['best_acc']), 'train_time': r['train_time']}
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({'model_state_dict': best_r['best_state'], 'model_type': student_model_type, 'num_classes': num_classes,
+                'dataset_type': dataset_type, 'best_test_acc': best_r['best_acc'], 'epoch': best_r['best_epoch']},
+               os.path.join(output_dir, 'student_model.pth'))
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_edge_kd_1"
+    os.makedirs(result_dir, exist_ok=True)
+    return {'status': 'success', 'edge_results': [{'edge_id': eid, 'best_test_acc': float(r['best_acc']), 'train_time': r['train_time']} for eid, r in all_results]}
 
 
 @register_task
 def ratr_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """ratr 知识蒸馏 - 边2"""
-    return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_edge_kd_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'ratr_edge_kd_2'
+        edge_id = 2
+
+    if config_name:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"{TASKS_ROOT}/{task_id}/input/ratr_edge_kd_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"{TASKS_ROOT}/{task_id}/input/ratr_edge_kd.json"
+    else:
+        config_path = f"{TASKS_ROOT}/{task_id}/input/ratr_edge_kd.json"
+
+    param_list = ['student_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+    student_model_type = config['student_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    alpha = config.get('kd_alpha', 0.7)
+    temperature = config.get('temperature', 4.0)
+    batch_size = config.get('batch_size', 128)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+
+    if dataset_type == 'ratr' and student_model_type != 'real_resnet7_ratr_cp':
+        raise ValueError(
+            f"(ratr) student_model_type must be 'real_resnet7_ratr_cp', got: {student_model_type}")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_edge_kd_2"
+    input_data = config.get('input_data', {})
+    data_path = config.get('data_path', {})
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'ratr_edge_kd_2', 'student_model.pth'):
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'student_edge_{edge_id}.pth')
+        if os.path.exists(target_file):
+            return {'status': 'cached'}
+
+    teacher_model_type = config.get('teacher_model_type')
+    file_name = input_data.get('file_name')
+    parent_folder = input_data.get('parent_folder')
+    teacher_model_path = f"{TASKS_ROOT}/{task_id}/output/{parent_folder}/{file_name}"
+    if not os.path.exists(teacher_model_path):
+        return {'status': 'error', 'message': f"教师模型不存在: {teacher_model_path}"}
+    teacher = create_model_by_type(teacher_model_type, num_classes, dataset_type)
+    checkpoint = torch.load(teacher_model_path, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        teacher.load_state_dict(checkpoint['model_state_dict'])
+        if not teacher_model_type and 'model_type' in checkpoint:
+            teacher_model_type = checkpoint['model_type']
+    else:
+        teacher.load_state_dict(checkpoint)
+    teacher.to(device)
+    teacher.eval()
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        soft_labels = _generate_soft_labels_from_teacher(teacher, X_train, batch_size, temperature, device, dataset_type=dataset_type)
+        student = create_model_by_type(student_model_type, num_classes, dataset_type)
+        student.to(device)
+        kd_result = _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels,
+                                          alpha, temperature, epochs, batch_size, learning_rate,
+                                          device, label=f"边{eid}", dataset_type=dataset_type)
+        torch.save({'model_state_dict': kd_result['best_state'], 'model_type': student_model_type, 'num_classes': num_classes,
+                    'dataset_type': dataset_type, 'best_test_acc': kd_result['best_acc'], 'epoch': kd_result['best_epoch'],
+                    'edge_id': eid}, os.path.join(output_dir, f'student_edge_{eid}.pth'))
+        all_results.append((eid, kd_result))
+    if single_edge_mode:
+        eid, r = all_results[0]
+        return {'status': 'success', 'edge_id': eid, 'best_test_acc': float(r['best_acc']), 'train_time': r['train_time']}
+    best_eid, best_r = max(all_results, key=lambda x: x[1]['best_acc'])
+    torch.save({'model_state_dict': best_r['best_state'], 'model_type': student_model_type, 'num_classes': num_classes,
+                'dataset_type': dataset_type, 'best_test_acc': best_r['best_acc'], 'epoch': best_r['best_epoch']},
+               os.path.join(output_dir, 'student_model.pth'))
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_edge_kd_2"
+    os.makedirs(result_dir, exist_ok=True)
+    return {'status': 'success', 'edge_results': [{'edge_id': eid, 'best_test_acc': float(r['best_acc']), 'train_time': r['train_time']} for eid, r in all_results]}
 
 
 @register_task
 def ratr_federated_train_callback(task_id, config_name=None, **kwargs):
     """ratr 联邦学习训练"""
-    return federated_train_callback(task_id, config_name=config_name or 'ratr_federated_train', **kwargs)
+    config_name_used = config_name or 'ratr_federated_train'
+    config_path = f"{TASKS_ROOT}/{task_id}/input/{config_name_used}.json"
+    param_list = ['dataset_type', 'edge_model_type', 'num_classes',
+                  'num_rounds', 'local_epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+    input_data_fed = config.get('input_data', {})
+    edge_data_paths = input_data_fed.get('edge_data_paths', config.get('edge_data_paths'))
+    if not edge_data_paths:
+        return {'status': 'error', 'message': '缺少参数: edge_data_paths（需在 input_data 或顶层配置中指定）'}
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config['local_epochs']
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name', config.get('file_name', None))
+    init_parent_folder = input_data.get('parent_folder', None)
+    if init_model_file and init_parent_folder:
+        if (not os.path.isabs(init_model_file)) and (os.path.dirname(init_model_file) == ''):
+            init_model_path = os.path.join(f"{TASKS_ROOT}/{task_id}/output", init_parent_folder, init_model_file)
+        else:
+            init_model_path = init_model_file
+    else:
+        init_model_path = init_model_file
+    num_edges = len(edge_data_paths)
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_federated_train"
+    if check_output_exists(task_id, 'ratr_federated_train', 'global_model.pth'):
+        return {'status': 'cached'}
+    edge_train_loaders, edge_test_loaders, edge_sizes = [], [], []
+    for path in edge_data_paths:
+        splits = _load_split_data(path, dataset_type)
+        X_train, y_train = splits['train']
+        X_test, y_test = splits['test']
+        edge_train_loaders.append(_make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type))
+        edge_test_loaders.append(_make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type))
+        edge_sizes.append(len(X_train))
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+    edge_kd_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_edge_kd_2"
+    per_edge_paths = [os.path.join(edge_kd_dir, f'student_edge_{i+1}.pth') for i in range(num_edges)]
+    has_per_edge = all(os.path.exists(p) for p in per_edge_paths)
+    if has_per_edge:
+        total_weight = sum(edge_sizes)
+        avg_state = None
+        resolved_edge_model_type = edge_model_type
+        for i in range(num_edges):
+            ckpt = torch.load(per_edge_paths[i], map_location=device)
+            if isinstance(ckpt, dict) and ckpt.get('model_type'):
+                resolved_edge_model_type = ckpt.get('model_type')
+                internal_cfg = ckpt.get('internal_cfg')
+            state = ckpt['model_state_dict'] if isinstance(ckpt, dict) and 'model_state_dict' in ckpt else ckpt
+            w = edge_sizes[i] / total_weight
+            if avg_state is None:
+                avg_state = {k: v.float() * w for k, v in state.items()}
+            else:
+                for k in avg_state:
+                    avg_state[k] += state[k].float() * w
+        if dataset_type == 'ratr' and resolved_edge_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_edge_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_edge_model_type
+        global_model.load_state_dict(avg_state)
+    elif init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device)
+        global_model.load_state_dict(checkpoint['model_state_dict'] if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint else checkpoint)
+    global_model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    best_avg_acc, best_global_state = 0.0, None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_states, edge_weights, edge_accs = [], [], []
+        for e in range(num_edges):
+            if dataset_type == 'ratr' and edge_model_type == 'real_resnet7_ratr_cp':
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            else:
+                local_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+            local_model.load_state_dict(global_model.state_dict())
+            local_model.to(device)
+            local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+            for le in range(1, local_epochs + 1):
+                _train_one_epoch(local_model, edge_train_loaders[e], local_optimizer, criterion, device,
+                                 epoch_info=(le, local_epochs))
+            _, test_acc = _evaluate(local_model, edge_test_loaders[e], criterion, device)
+            edge_accs.append(test_acc)
+            edge_states.append(copy.deepcopy(local_model.state_dict()))
+            edge_weights.append(edge_sizes[e])
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(edge_states[e][key] * (edge_weights[e] / total_weight)
+                                        for e in range(num_edges))
+        global_model.load_state_dict(global_state)
+        avg_acc = np.mean(edge_accs)
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+    total_time = time.time() - start_time
+    os.makedirs(output_dir, exist_ok=True)
+    torch.save({'model_state_dict': best_global_state, 'model_type': edge_model_type, 'internal_cfg': internal_cfg,
+                'num_classes': num_classes, 'dataset_type': dataset_type, 'best_avg_acc': best_avg_acc},
+               os.path.join(output_dir, 'global_model.pth'))
+    for e in range(num_edges):
+        torch.save({'model_state_dict': edge_states[e], 'model_type': edge_model_type, 'internal_cfg': internal_cfg,
+                    'num_classes': num_classes, 'dataset_type': dataset_type},
+                   os.path.join(output_dir, f'edge_{e+1}_model.pth'))
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习训练报告\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"本地epoch: {local_epochs}\n")
+        f.write(f"训练耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n")
+    return {'status': 'success', 'best_avg_acc': float(best_avg_acc), 'num_edges': num_edges, 'num_rounds': num_rounds, 'train_time': total_time}
 
 
 @register_task
 def ratr_federated_cloud_callback(task_id, config_name=None, **kwargs):
     """ratr 联邦学习 - 云侧聚合"""
-    return federated_cloud_callback(task_id, config_name=config_name or 'ratr_federated_cloud', **kwargs)
+    config_name = config_name or 'ratr_federated_cloud'
+    config = _load_federated_config(task_id, config_name)
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    input_data = config.get('input_data', {})
+    init_model_file = input_data.get('file_name')
+    init_model_parent = input_data.get('parent_folder')
+    init_model_path = f"{TASKS_ROOT}/{task_id}/output/{init_model_parent}/{init_model_file}" if init_model_file and init_model_parent else config.get('init_model_path', None)
+    timeout = config.get('sync_timeout', 1800)
+    num_edges = config.get('num_edges', len(config.get('edge_data_paths', [])))
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_federated_train"
+    os.makedirs(output_dir, exist_ok=True)
+    if check_output_exists(task_id, 'ratr_federated_train', 'global_model.pth'):
+        return {'status': 'cached'}
+    internal_cfg = None
+    global_model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+    if init_model_path and os.path.exists(init_model_path):
+        checkpoint = torch.load(init_model_path, map_location=device, weights_only=False)
+        resolved_model_type = checkpoint.get('model_type', edge_model_type) if isinstance(checkpoint, dict) else edge_model_type
+        internal_cfg = checkpoint.get('internal_cfg') if isinstance(checkpoint, dict) else None
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            global_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        edge_model_type = resolved_model_type
+        global_model.load_state_dict(checkpoint['model_state_dict'] if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint else checkpoint)
+    global_model.to(device)
+    torch.save({'model_state_dict': global_model.state_dict(), 'model_type': edge_model_type, 'internal_cfg': internal_cfg,
+                'num_classes': num_classes, 'dataset_type': dataset_type}, os.path.join(output_dir, 'global_model_round_0.pth'))
+    best_avg_acc, best_global_state = 0.0, None
+    history = {'round': [], 'avg_test_acc': [], 'edge_test_accs': []}
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_paths = []
+        for e in range(1, num_edges + 1):
+            edge_path = os.path.join(output_dir, f'edge_{e}_round_{round_idx}.pth')
+            _wait_for_file(edge_path, timeout=timeout)
+            edge_round_paths.append(edge_path)
+        edge_states, edge_weights, edge_accs = [], [], []
+        for path in edge_round_paths:
+            ckpt = torch.load(path, map_location=device, weights_only=False)
+            edge_states.append(ckpt['model_state_dict'])
+            edge_weights.append(ckpt.get('num_samples', 1))
+            edge_accs.append(ckpt.get('test_acc', 0.0))
+        total_weight = sum(edge_weights)
+        global_state = global_model.state_dict()
+        for key in global_state:
+            if global_state[key].is_floating_point() or global_state[key].is_complex():
+                global_state[key] = sum(edge_states[e][key] * (edge_weights[e] / total_weight)
+                                        for e in range(num_edges))
+        global_model.load_state_dict(global_state)
+        torch.save({'model_state_dict': global_state, 'model_type': edge_model_type, 'internal_cfg': internal_cfg,
+                    'num_classes': num_classes, 'dataset_type': dataset_type},
+                   os.path.join(output_dir, f'global_model_round_{round_idx}.pth'))
+        avg_acc = np.mean(edge_accs) if edge_accs and edge_accs[0] > 0 else 0.0
+        history['round'].append(round_idx)
+        history['avg_test_acc'].append(avg_acc)
+        history['edge_test_accs'].append(edge_accs)
+        if avg_acc > best_avg_acc:
+            best_avg_acc = avg_acc
+            best_global_state = copy.deepcopy(global_state)
+    total_time = time.time() - start_time
+    if best_global_state is None:
+        best_global_state = global_model.state_dict()
+    torch.save({'model_state_dict': best_global_state, 'model_type': edge_model_type, 'internal_cfg': internal_cfg,
+                'num_classes': num_classes, 'dataset_type': dataset_type, 'best_avg_acc': best_avg_acc},
+               os.path.join(output_dir, 'global_model.pth'))
+    save_pickle(os.path.join(output_dir, 'train_history.pkl'), history)
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_federated_train"
+    os.makedirs(result_dir, exist_ok=True)
+    with open(os.path.join(result_dir, 'federated_server_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n联邦学习聚合报告（分布式模式-云侧）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"边侧数: {num_edges}\n")
+        f.write(f"训练轮数: {num_rounds}\n")
+        f.write(f"聚合耗时: {total_time:.1f}s\n\n")
+        f.write(f"最佳平均准确率: {best_avg_acc*100:.2f}%\n")
+    return {'status': 'success', 'best_avg_acc': float(best_avg_acc), 'num_edges': num_edges, 'num_rounds': num_rounds}
 
 
 @register_task
@@ -2079,13 +5427,133 @@ def ratr_federated_edge_callback(task_id, edge_id=None, config_name=None, **kwar
 @register_task
 def ratr_federated_edge_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """ratr 联邦学习 - 边1"""
-    return federated_edge_1_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_federated_edge_1', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'ratr_federated_edge_1'
+        edge_id = 1
+    config = _load_federated_config(task_id, config_name)
+    edge_id = config.get('edge_id', edge_id)
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+    output_dir = config.get('sync_dir', f"{TASKS_ROOT}/{task_id}/output/ratr_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        return {'status': 'cached'}
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+    criterion = nn.CrossEntropyLoss()
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            continue
+        global_round_path = os.path.join(output_dir, f'global_model_round_{round_idx-1}.pth')
+        _wait_for_file(global_round_path, timeout=timeout)
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type)
+        internal_cfg = ckpt.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(local_model, train_loader, local_optimizer, criterion, device,
+                             epoch_info=(ep, local_epochs))
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+        torch.save({'model_state_dict': local_model.state_dict(), 'model_type': resolved_model_type, 'internal_cfg': internal_cfg,
+                    'num_classes': num_classes, 'num_samples': num_samples, 'test_acc': test_acc,
+                    'edge_id': edge_id, 'round': round_idx}, edge_round_path)
+    total_time = time.time() - start_time
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({'model_state_dict': last_ckpt['model_state_dict'], 'model_type': last_ckpt.get('model_type', edge_model_type),
+                    'internal_cfg': last_ckpt.get('internal_cfg', None), 'num_classes': num_classes}, final_model_path)
+    return {'status': 'success', 'edge_id': edge_id, 'num_rounds': num_rounds, 'train_time': total_time}
 
 
 @register_task
 def ratr_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
     """ratr 联邦学习 - 边2"""
-    return federated_edge_2_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_federated_edge_2', **kwargs)
+    if config_name is None and edge_id is None:
+        config_name = 'ratr_federated_edge_2'
+        edge_id = 2
+    config = _load_federated_config(task_id, config_name)
+    edge_id = config.get('edge_id', edge_id)
+    dataset_type = config['dataset_type']
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    num_rounds = config['num_rounds']
+    local_epochs = config.get('local_epochs', 1)
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    _apply_cpu_stability_settings(device)
+    timeout = config.get('sync_timeout', 1800)
+    output_dir = config.get('sync_dir', f"{TASKS_ROOT}/{task_id}/output/ratr_federated_train")
+    os.makedirs(output_dir, exist_ok=True)
+    final_model_path = os.path.join(output_dir, f'edge_{edge_id}_model.pth')
+    if os.path.exists(final_model_path):
+        return {'status': 'cached'}
+    data_path = config.get('data_path')
+    if not data_path and 'edge_data_paths' in config:
+        data_path = config['edge_data_paths'][edge_id - 1]
+    splits = _load_split_data(data_path, dataset_type)
+    X_train, y_train = splits['train']
+    X_test, y_test = splits['test']
+    train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+    test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+    num_samples = len(X_train)
+    criterion = nn.CrossEntropyLoss()
+    start_time = time.time()
+    for round_idx in range(1, num_rounds + 1):
+        edge_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{round_idx}.pth')
+        if os.path.exists(edge_round_path):
+            continue
+        global_round_path = os.path.join(output_dir, f'global_model_round_{round_idx-1}.pth')
+        _wait_for_file(global_round_path, timeout=timeout)
+        ckpt = torch.load(global_round_path, map_location=device, weights_only=False)
+        resolved_model_type = ckpt.get('model_type', edge_model_type)
+        internal_cfg = ckpt.get('internal_cfg')
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+        else:
+            local_model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+        local_model.load_state_dict(ckpt['model_state_dict'])
+        local_model.to(device)
+        local_optimizer = optim.Adam(local_model.parameters(), lr=learning_rate)
+        for ep in range(1, local_epochs + 1):
+            _train_one_epoch(local_model, train_loader, local_optimizer, criterion, device,
+                             epoch_info=(ep, local_epochs))
+        _, test_acc = _evaluate(local_model, test_loader, criterion, device)
+        torch.save({'model_state_dict': local_model.state_dict(), 'model_type': resolved_model_type, 'internal_cfg': internal_cfg,
+                    'num_classes': num_classes, 'num_samples': num_samples, 'test_acc': test_acc,
+                    'edge_id': edge_id, 'round': round_idx}, edge_round_path)
+    total_time = time.time() - start_time
+    last_round_path = os.path.join(output_dir, f'edge_{edge_id}_round_{num_rounds}.pth')
+    if os.path.exists(last_round_path):
+        last_ckpt = torch.load(last_round_path, map_location=device, weights_only=False)
+        torch.save({'model_state_dict': last_ckpt['model_state_dict'], 'model_type': last_ckpt.get('model_type', edge_model_type),
+                    'internal_cfg': last_ckpt.get('internal_cfg', None), 'num_classes': num_classes}, final_model_path)
+    return {'status': 'success', 'edge_id': edge_id, 'num_rounds': num_rounds, 'train_time': total_time}
 
 
 @register_task

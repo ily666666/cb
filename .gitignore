@@ -39,3 +39,7 @@ web/frontend/node_modules/
 web/frontend/package-lock.json
 web/frontend/dist/
 web/frontend/.vite/
+/cp/resnet10_final_radar_3_CP.py
+/scripts/compare_pth_params.py
+/cp/CP.py
+/cp/run_cp_prune.py
