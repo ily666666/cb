@@ -19,7 +19,7 @@
 
     "_注释_input_data":   "协同模式下source=edge_infer，读取边侧筛选出的低置信度样本",
     "input_data": {
-        "parent_folder": "edge_infer",
+        "parent_folder": "rml2016_edge_infer",
         "signals_file": "low_conf_signals.pkl"
     }
 }
