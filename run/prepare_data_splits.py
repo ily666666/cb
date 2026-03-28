@@ -45,7 +45,7 @@ DATASET_CONFIG = {
         'description': 'Radar - 7类雷达个体识别'
     },
     'ratr': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/small_ratr',
+        'data_path': 'E:/BaiduNet_Download/dataGen/ratr.mat',
         'num_classes': 3,
         'description': 'RATR - 3类雷达目标识别'
     }
@@ -350,7 +350,7 @@ def main():
                         help='云侧数据比例（默认0.8，云侧80%%用于预训练+蒸馏，边侧20%%用于联邦学习）')
     parser.add_argument('--seed', type=int, default=42, 
                         help='随机种子')
-    parser.add_argument('--output_dir', type=str, default='dataset/splits/', 
+    parser.add_argument('--output_dir', type=str, default='dataset/splits/small', 
                         help='输出目录')
     parser.add_argument('--radar_length', type=int, default=500, 
                         choices=[500, 1000],

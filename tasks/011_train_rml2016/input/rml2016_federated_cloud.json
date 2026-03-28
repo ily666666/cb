@@ -4,7 +4,7 @@
 
     "_注释_input_data": "上一步（edge_kd）的输出，作为本步骤的输入",
     "input_data": {
-        "parent_folder": "edge_kd_2",
+        "parent_folder": "rml2016_edge_kd_2",
         "file_name": "student_edge2.pth"
     },
 

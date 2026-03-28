@@ -4,7 +4,7 @@
 
     "_注释_input_data": "上一步（cloud_pretrain）的输出，作为本步骤的输入",
     "input_data": {
-        "parent_folder": "cloud_pretrain",
+        "parent_folder": "radar_cloud_pretrain",
         "file_name": "teacher_model.pth"
     },
     

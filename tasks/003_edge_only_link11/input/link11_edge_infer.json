@@ -6,7 +6,7 @@
     "batch_size": 32,
     "simulate_bandwidth_mbps": 100,
     "input_data": {
-        "parent_folder": "device_load",
+        "parent_folder": "link11_device_load",
         "file_name": "data_batch.pkl"
     }
 }

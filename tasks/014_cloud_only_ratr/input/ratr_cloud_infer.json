@@ -19,7 +19,7 @@
 
     "_注释_input_data": "云侧推理的输入数据来源",
     "input_data": {
-        "parent_folder": "device_load",
+        "parent_folder": "ratr_device_load",
         "file_name": "data_batch.pkl"
     }
 }

@@ -5,7 +5,7 @@
     "_注释_input_data": "上一步（cloud_pretrain）的输出，作为本步骤的输入",
     "input_data": {
         "file_name": "teacher_model.pth",
-        "parent_folder": "cloud_pretrain"
+        "parent_folder": "rml2016_cloud_pretrain"
     },
 
     "data_path": "dataset/splits/rml2016/edge_2_data.pkl",
