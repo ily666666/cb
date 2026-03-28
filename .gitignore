@@ -30,3 +30,7 @@ tasks/*/output/*
 tasks/*/result/*
 
 *.zip
+/cp/resnet10_final_radar_3_CP.py
+/scripts/compare_pth_params.py
+/cp/CP.py
+/cp/run_cp_prune.py

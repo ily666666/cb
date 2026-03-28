@@ -14,7 +14,7 @@ from datetime import datetime
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from callback.registry import register_task
-from config_refactor import get_dataset_from_task_id
+from config_refactor import get_dataset_from_task_id, TASKS_ROOT
 from utils_refactor import (
     load_json, save_json, load_pickle, save_pickle, save_numpy, 
     check_parameters, load_from_output, check_output_exists,
@@ -167,42 +167,14 @@ def batch_inference_efficient(model, X_data, y_data, batch_size, device, dataset
 
 @register_task
 def edge_infer_callback(task_id, **kwargs):
-    """
-    边侧推理回调
-    
-    功能：
-    1. 从output/device_load加载数据
-    2. 加载边侧模型
-    3. 批量推理，计算置信度
-    4. 筛选低置信度样本（发送给云侧）
-    5. 保存中间结果和最终报告
-    
-    配置文件: tasks/{task_id}/input/edge_infer.json
-    输入文件: tasks/{task_id}/output/device_load/data_batch.pkl
-    输出文件: 
-        - output/edge_infer/predictions.npy
-        - output/edge_infer/confidences.npy
-        - output/edge_infer/low_conf_signals.pkl
-        - output/edge_infer/low_conf_indices.npy
-        - result/edge_infer/inference_report.txt
-    
-    Args:
-        task_id: 任务ID
-    
-    Returns:
-        dict: 执行结果
-    """
     print(f"\n{'='*60}")
     print(f"[边侧] 开始执行推理任务")
     print(f"{'='*60}")
-    
-    # 1. 读取配置文件
-    ds = get_dataset_from_task_id(task_id)
-    config_path = f"./tasks/{task_id}/input/{ds}_edge_infer.json"
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/edge_infer.json"
     param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
-    
+
     result, config = check_parameters(config_path, param_list)
-    
     if 'error' in result:
         print(f"[错误] {result['error']}")
         return {'status': 'error', 'message': result['error']}
@@ -210,14 +182,14 @@ def edge_infer_callback(task_id, **kwargs):
         missing_str = ', '.join(result['missing'])
         print(f"[错误] 缺少必需参数: {missing_str}")
         return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
-    
+
     model_path = config['model_path']
     model_type = config['model_type']
     num_classes = config['num_classes']
     confidence_threshold = config.get('confidence_threshold', None)
     device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
     batch_size = config.get('batch_size', 128)
-    
+
     print(f"[配置] 模型路径: {model_path}")
     print(f"[配置] 模型类型: {model_type}")
     if confidence_threshold is not None:
@@ -225,41 +197,31 @@ def edge_infer_callback(task_id, **kwargs):
     else:
         print(f"[配置] 置信度阈值: 未设置（纯边侧模式，不筛选低置信度样本）")
     print(f"[配置] 计算设备: {device}")
-    
-    # 2. 检查是否已有缓存结果（断点续传）
-    output_pred_path = f"./tasks/{task_id}/output/edge_infer/predictions.npy"
+
+    output_pred_path = f"{TASKS_ROOT}/{task_id}/output/edge_infer/predictions.npy"
     if check_output_exists(task_id, 'edge_infer', 'predictions.npy'):
         print(f"[跳过] 边侧推理结果已存在，跳过计算")
-        # 加载缓存结果
         predictions = np.load(output_pred_path)
-        confidences = np.load(f"./tasks/{task_id}/output/edge_infer/confidences.npy")
-        
-        result = {
-            'status': 'cached',
-            'total_samples': len(predictions),
-        }
-        # 仅在协同模式下加载低置信度数据
-        low_conf_path = f"./tasks/{task_id}/output/edge_infer/low_conf_signals.pkl"
+        confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/edge_infer/confidences.npy")
+        result_obj = {'status': 'cached', 'total_samples': len(predictions)}
+        low_conf_path = f"{TASKS_ROOT}/{task_id}/output/edge_infer/low_conf_signals.pkl"
         if os.path.exists(low_conf_path):
             low_conf_signals = load_pickle(low_conf_path)
-            result['low_conf_samples'] = len(low_conf_signals['X'])
+            result_obj['low_conf_samples'] = len(low_conf_signals['X'])
         else:
-            result['low_conf_samples'] = 0
-        
-        return result
-    
-    # 3. 加载输入数据
+            result_obj['low_conf_samples'] = 0
+        return result_obj
+
     print(f"[加载] 从 device_load 加载数据...")
     input_source = config['input_data']['parent_folder']
     input_file = config['input_data']['file_name']
-    
+
     t_data_load_start = time.time()
     try:
         input_data = load_from_output(task_id, input_source, input_file)
         X_data = input_data['X']
         y_data = input_data['y']
         dataset_type = input_data['dataset_type']
-        
         print(f"[加载] 成功加载 {len(X_data)} 个样本")
     except Exception as e:
         error_msg = f"加载输入数据失败: {str(e)}"
@@ -267,15 +229,13 @@ def edge_infer_callback(task_id, **kwargs):
         return {'status': 'error', 'message': error_msg}
     t_data_load = time.time() - t_data_load_start
     print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
-    
-    # 3.5 模拟网络传输（设备→边侧）
+
     bandwidth = config.get('simulate_bandwidth_mbps', None)
     transfer_info = {'transfer_time': 0}
     if bandwidth:
-        input_file_path = f"./tasks/{task_id}/output/{input_source}/{input_file}"
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
         transfer_info = simulate_transfer(input_file_path, bandwidth)
-    
-    # 4. 加载模型
+
     print(f"[模型] 正在加载边侧模型...")
     t_model_load_start = time.time()
     try:
@@ -293,7 +253,6 @@ def edge_infer_callback(task_id, **kwargs):
             ckpt_model_type = checkpoint.get('model_type')
             internal_cfg = checkpoint.get('internal_cfg')
             state_dict = checkpoint.get('model_state_dict')
-
         if state_dict is None:
             state_dict = checkpoint
 
@@ -304,59 +263,51 @@ def edge_infer_callback(task_id, **kwargs):
         else:
             model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
             model.load_state_dict(state_dict)
+
         print(f"[模型] 成功加载模型权重")
-        
     except Exception as e:
         error_msg = f"加载模型失败: {str(e)}"
         print(f"[错误] {error_msg}")
         return {'status': 'error', 'message': error_msg}
     t_model_load = time.time() - t_model_load_start
-    
-    # 5. 批量推理（batch_inference_efficient 内部会做 warmup 并只计纯推理时间）
+
     predictions, confidences, corrects, t_warmup, t_infer = batch_inference_efficient(
         model, X_data, y_data, batch_size, device, dataset_type=dataset_type
     )
-    
-    # 6. 计算准确率
+
     accuracy = corrects.mean()
     print(f"[结果] 边侧整体准确率: {accuracy*100:.2f}%")
-    
-    # 7. 保存基本结果到output
-    output_dir = f"./tasks/{task_id}/output/edge_infer"
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/edge_infer"
     os.makedirs(output_dir, exist_ok=True)
-    
     save_numpy(os.path.join(output_dir, 'predictions.npy'), predictions)
     save_numpy(os.path.join(output_dir, 'confidences.npy'), confidences)
     save_numpy(os.path.join(output_dir, 'corrects.npy'), corrects)
-    
-    # 8. 筛选低置信度样本（仅在设置了阈值时执行，用于协同推理模式）
+
     if confidence_threshold is not None:
         low_conf_mask = confidences < confidence_threshold
         low_conf_indices = np.where(low_conf_mask)[0]
         high_conf_mask = ~low_conf_mask
-        
+
         num_low_conf = low_conf_mask.sum()
         num_high_conf = high_conf_mask.sum()
         low_conf_ratio = num_low_conf / len(predictions) * 100
-        
+
         print(f"[筛选] 高置信度样本: {num_high_conf} ({100-low_conf_ratio:.1f}%)")
         print(f"[筛选] 低置信度样本: {num_low_conf} ({low_conf_ratio:.1f}%)")
-        
-        # 提取低置信度样本
+
         low_conf_X = X_data[low_conf_mask]
         low_conf_y = y_data[low_conf_mask]
         low_conf_preds = predictions[low_conf_mask]
         low_conf_confs = confidences[low_conf_mask]
-        
-        # 计算高/低置信度准确率
+
         high_conf_acc = corrects[high_conf_mask].mean() if num_high_conf > 0 else 0.0
         low_conf_acc = corrects[low_conf_mask].mean() if num_low_conf > 0 else 0.0
-        
+
         print(f"[结果] 高置信度准确率: {high_conf_acc*100:.2f}%")
         print(f"[结果] 低置信度准确率: {low_conf_acc*100:.2f}%")
-        
+
         save_numpy(os.path.join(output_dir, 'low_conf_indices.npy'), low_conf_indices)
-        
         low_conf_data = {
             'X': low_conf_X,
             'y': low_conf_y,
@@ -373,8 +324,7 @@ def edge_infer_callback(task_id, **kwargs):
         low_conf_acc = 0.0
         low_conf_ratio = 0.0
         print(f"[信息] 纯边侧模式，跳过低置信度筛选")
-    
-    # 保存计时信息到文件（供 run_task.py 读取）
+
     save_timing(output_dir, {
         'data_load_time': t_data_load,
         'transfer_time': transfer_info['transfer_time'],
@@ -382,14 +332,12 @@ def edge_infer_callback(task_id, **kwargs):
         'warmup_time': t_warmup,
         'inference_time': t_infer,
     }, field_overrides={'transfer_time': '端侧→边侧 数据传输耗时（模拟带宽限速）'})
-    
+
     print(f"[保存] 中间结果已保存到: {output_dir}")
     print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
-    
-    # 9. 生成报告到result
-    result_dir = f"./tasks/{task_id}/result/edge_infer"
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/edge_infer"
     os.makedirs(result_dir, exist_ok=True)
-    
     report_path = os.path.join(result_dir, 'edge_report.txt')
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write("="*60 + "\n")
@@ -397,7 +345,6 @@ def edge_infer_callback(task_id, **kwargs):
         f.write("="*60 + "\n\n")
         f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"任务ID: {task_id}\n\n")
-        
         f.write("=" * 60 + "\n")
         f.write("配置信息\n")
         f.write("=" * 60 + "\n")
@@ -408,13 +355,13 @@ def edge_infer_callback(task_id, **kwargs):
         else:
             f.write(f"置信度阈值: 无（纯边侧模式）\n")
         f.write(f"批次大小: {batch_size}\n\n")
-        
+
         f.write("=" * 60 + "\n")
         f.write("推理结果\n")
         f.write("=" * 60 + "\n")
         f.write(f"总样本数: {len(predictions)}\n")
         f.write(f"整体准确率: {accuracy*100:.2f}%\n\n")
-        
+
         if confidence_threshold is not None:
             f.write("=" * 60 + "\n")
             f.write("置信度分析\n")
@@ -423,7 +370,7 @@ def edge_infer_callback(task_id, **kwargs):
             f.write(f"高置信度准确率: {high_conf_acc*100:.2f}%\n\n")
             f.write(f"低置信度样本数: {num_low_conf} ({low_conf_ratio:.1f}%)\n")
             f.write(f"低置信度准确率: {low_conf_acc*100:.2f}%\n\n")
-        
+
         f.write("=" * 60 + "\n")
         f.write("置信度统计\n")
         f.write("=" * 60 + "\n")
@@ -431,7 +378,7 @@ def edge_infer_callback(task_id, **kwargs):
         f.write(f"最大置信度: {confidences.max():.4f}\n")
         f.write(f"平均置信度: {confidences.mean():.4f}\n")
         f.write(f"中位数置信度: {np.median(confidences):.4f}\n\n")
-        
+
         f.write("=" * 60 + "\n")
         f.write("耗时信息\n")
         f.write("=" * 60 + "\n")
@@ -440,10 +387,9 @@ def edge_infer_callback(task_id, **kwargs):
         f.write(f"模型加载+热身: {t_model_load + t_warmup:.2f}s\n")
         if transfer_info['transfer_time'] > 0:
             f.write(f"传输: {transfer_info['transfer_time']:.2f}s\n")
-    
+
     print(f"[报告] 推理报告已保存到: {report_path}")
-    
-    # 10. 返回统计信息
+
     result_info = {
         'status': 'success',
         'total_samples': len(predictions),
@@ -455,31 +401,974 @@ def edge_infer_callback(task_id, **kwargs):
         'low_conf_ratio': float(low_conf_ratio),
         'avg_confidence': float(confidences.mean()),
     }
-    
+
     print(f"[完成] 边侧推理完成")
-    
     return result_info
 
 
 @register_task
 def link11_edge_infer_callback(task_id, **kwargs):
     """link11 边侧推理回调"""
-    return edge_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[边侧] 开始执行推理任务")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/link11_edge_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        print(f"[错误] {result['error']}")
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        missing_str = ', '.join(result['missing'])
+        print(f"[错误] 缺少必需参数: {missing_str}")
+        return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    confidence_threshold = config.get('confidence_threshold', None)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    print(f"[配置] 模型路径: {model_path}")
+    print(f"[配置] 模型类型: {model_type}")
+    if confidence_threshold is not None:
+        print(f"[配置] 置信度阈值: {confidence_threshold}")
+    else:
+        print(f"[配置] 置信度阈值: 未设置（纯边侧模式，不筛选低置信度样本）")
+    print(f"[配置] 计算设备: {device}")
+
+    output_pred_path = f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer/predictions.npy"
+    if check_output_exists(task_id, 'link11_edge_infer', 'predictions.npy'):
+        print(f"[跳过] 边侧推理结果已存在，跳过计算")
+        predictions = np.load(output_pred_path)
+        confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer/confidences.npy")
+        result_obj = {'status': 'cached', 'total_samples': len(predictions)}
+        low_conf_path = f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer/low_conf_signals.pkl"
+        if os.path.exists(low_conf_path):
+            low_conf_signals = load_pickle(low_conf_path)
+            result_obj['low_conf_samples'] = len(low_conf_signals['X'])
+        else:
+            result_obj['low_conf_samples'] = 0
+        return result_obj
+
+    print(f"[加载] 从 device_load 加载数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data']['file_name']
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        error_msg = f"加载输入数据失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    print(f"[模型] 正在加载边侧模型...")
+    t_model_load_start = time.time()
+    try:
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        else:
+            error_msg = f"模型文件不存在: {model_path}"
+            print(f"[错误] {error_msg}")
+            return {'status': 'error', 'message': error_msg}
+
+        ckpt_model_type = None
+        internal_cfg = None
+        state_dict = None
+        if isinstance(checkpoint, dict):
+            ckpt_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+            state_dict = checkpoint.get('model_state_dict')
+        if state_dict is None:
+            state_dict = checkpoint
+
+        resolved_model_type = ckpt_model_type or model_type
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+            model.load_state_dict(state_dict)
+
+        print(f"[模型] 成功加载模型权重")
+    except Exception as e:
+        error_msg = f"加载模型失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_efficient(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+
+    accuracy = corrects.mean()
+    print(f"[结果] 边侧整体准确率: {accuracy*100:.2f}%")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/link11_edge_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'corrects.npy'), corrects)
+
+    if confidence_threshold is not None:
+        low_conf_mask = confidences < confidence_threshold
+        low_conf_indices = np.where(low_conf_mask)[0]
+        high_conf_mask = ~low_conf_mask
+
+        num_low_conf = low_conf_mask.sum()
+        num_high_conf = high_conf_mask.sum()
+        low_conf_ratio = num_low_conf / len(predictions) * 100
+
+        print(f"[筛选] 高置信度样本: {num_high_conf} ({100-low_conf_ratio:.1f}%)")
+        print(f"[筛选] 低置信度样本: {num_low_conf} ({low_conf_ratio:.1f}%)")
+
+        low_conf_X = X_data[low_conf_mask]
+        low_conf_y = y_data[low_conf_mask]
+        low_conf_preds = predictions[low_conf_mask]
+        low_conf_confs = confidences[low_conf_mask]
+
+        high_conf_acc = corrects[high_conf_mask].mean() if num_high_conf > 0 else 0.0
+        low_conf_acc = corrects[low_conf_mask].mean() if num_low_conf > 0 else 0.0
+
+        print(f"[结果] 高置信度准确率: {high_conf_acc*100:.2f}%")
+        print(f"[结果] 低置信度准确率: {low_conf_acc*100:.2f}%")
+
+        save_numpy(os.path.join(output_dir, 'low_conf_indices.npy'), low_conf_indices)
+        low_conf_data = {
+            'X': low_conf_X,
+            'y': low_conf_y,
+            'predictions': low_conf_preds,
+            'confidences': low_conf_confs,
+            'indices': low_conf_indices,
+            'dataset_type': dataset_type,
+        }
+        save_pickle(os.path.join(output_dir, 'low_conf_signals.pkl'), low_conf_data)
+    else:
+        num_low_conf = 0
+        num_high_conf = len(predictions)
+        high_conf_acc = accuracy
+        low_conf_acc = 0.0
+        low_conf_ratio = 0.0
+        print(f"[信息] 纯边侧模式，跳过低置信度筛选")
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→边侧 数据传输耗时（模拟带宽限速）'})
+
+    print(f"[保存] 中间结果已保存到: {output_dir}")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/link11_edge_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    report_path = os.path.join(result_dir, 'edge_report.txt')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("="*60 + "\n")
+        f.write("边侧推理报告\n")
+        f.write("="*60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"任务ID: {task_id}\n\n")
+        f.write("=" * 60 + "\n")
+        f.write("配置信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集类型: {dataset_type}\n")
+        if confidence_threshold is not None:
+            f.write(f"置信度阈值: {confidence_threshold}\n")
+        else:
+            f.write(f"置信度阈值: 无（纯边侧模式）\n")
+        f.write(f"批次大小: {batch_size}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("推理结果\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"总样本数: {len(predictions)}\n")
+        f.write(f"整体准确率: {accuracy*100:.2f}%\n\n")
+
+        if confidence_threshold is not None:
+            f.write("=" * 60 + "\n")
+            f.write("置信度分析\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"高置信度样本数: {num_high_conf} ({100-low_conf_ratio:.1f}%)\n")
+            f.write(f"高置信度准确率: {high_conf_acc*100:.2f}%\n\n")
+            f.write(f"低置信度样本数: {num_low_conf} ({low_conf_ratio:.1f}%)\n")
+            f.write(f"低置信度准确率: {low_conf_acc*100:.2f}%\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("置信度统计\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"最小置信度: {confidences.min():.4f}\n")
+        f.write(f"最大置信度: {confidences.max():.4f}\n")
+        f.write(f"平均置信度: {confidences.mean():.4f}\n")
+        f.write(f"中位数置信度: {np.median(confidences):.4f}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("耗时信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"数据加载: {t_data_load:.2f}s\n")
+        f.write(f"推理: {t_infer:.2f}s\n")
+        f.write(f"模型加载+热身: {t_model_load + t_warmup:.2f}s\n")
+        if transfer_info['transfer_time'] > 0:
+            f.write(f"传输: {transfer_info['transfer_time']:.2f}s\n")
+
+    print(f"[报告] 推理报告已保存到: {report_path}")
+
+    result_info = {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'high_conf_samples': int(num_high_conf),
+        'high_conf_accuracy': float(high_conf_acc),
+        'low_conf_samples': int(num_low_conf),
+        'low_conf_accuracy': float(low_conf_acc),
+        'low_conf_ratio': float(low_conf_ratio),
+        'avg_confidence': float(confidences.mean()),
+    }
+
+    print(f"[完成] 边侧推理完成")
+    return result_info
 
 
 @register_task
 def rml2016_edge_infer_callback(task_id, **kwargs):
     """rml2016 边侧推理回调"""
-    return edge_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[边侧] 开始执行推理任务")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/rml2016_edge_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        print(f"[错误] {result['error']}")
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        missing_str = ', '.join(result['missing'])
+        print(f"[错误] 缺少必需参数: {missing_str}")
+        return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    confidence_threshold = config.get('confidence_threshold', None)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    print(f"[配置] 模型路径: {model_path}")
+    print(f"[配置] 模型类型: {model_type}")
+    if confidence_threshold is not None:
+        print(f"[配置] 置信度阈值: {confidence_threshold}")
+    else:
+        print(f"[配置] 置信度阈值: 未设置（纯边侧模式，不筛选低置信度样本）")
+    print(f"[配置] 计算设备: {device}")
+
+    output_pred_path = f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer/predictions.npy"
+    if check_output_exists(task_id, 'rml2016_edge_infer', 'predictions.npy'):
+        print(f"[跳过] 边侧推理结果已存在，跳过计算")
+        predictions = np.load(output_pred_path)
+        confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer/confidences.npy")
+        result_obj = {'status': 'cached', 'total_samples': len(predictions)}
+        low_conf_path = f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer/low_conf_signals.pkl"
+        if os.path.exists(low_conf_path):
+            low_conf_signals = load_pickle(low_conf_path)
+            result_obj['low_conf_samples'] = len(low_conf_signals['X'])
+        else:
+            result_obj['low_conf_samples'] = 0
+        return result_obj
+
+    print(f"[加载] 从 device_load 加载数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data']['file_name']
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        error_msg = f"加载输入数据失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    print(f"[模型] 正在加载边侧模型...")
+    t_model_load_start = time.time()
+    try:
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        else:
+            error_msg = f"模型文件不存在: {model_path}"
+            print(f"[错误] {error_msg}")
+            return {'status': 'error', 'message': error_msg}
+
+        ckpt_model_type = None
+        internal_cfg = None
+        state_dict = None
+        if isinstance(checkpoint, dict):
+            ckpt_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+            state_dict = checkpoint.get('model_state_dict')
+        if state_dict is None:
+            state_dict = checkpoint
+
+        resolved_model_type = ckpt_model_type or model_type
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+            model.load_state_dict(state_dict)
+
+        print(f"[模型] 成功加载模型权重")
+    except Exception as e:
+        error_msg = f"加载模型失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_efficient(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+
+    accuracy = corrects.mean()
+    print(f"[结果] 边侧整体准确率: {accuracy*100:.2f}%")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/rml2016_edge_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'corrects.npy'), corrects)
+
+    if confidence_threshold is not None:
+        low_conf_mask = confidences < confidence_threshold
+        low_conf_indices = np.where(low_conf_mask)[0]
+        high_conf_mask = ~low_conf_mask
+
+        num_low_conf = low_conf_mask.sum()
+        num_high_conf = high_conf_mask.sum()
+        low_conf_ratio = num_low_conf / len(predictions) * 100
+
+        print(f"[筛选] 高置信度样本: {num_high_conf} ({100-low_conf_ratio:.1f}%)")
+        print(f"[筛选] 低置信度样本: {num_low_conf} ({low_conf_ratio:.1f}%)")
+
+        low_conf_X = X_data[low_conf_mask]
+        low_conf_y = y_data[low_conf_mask]
+        low_conf_preds = predictions[low_conf_mask]
+        low_conf_confs = confidences[low_conf_mask]
+
+        high_conf_acc = corrects[high_conf_mask].mean() if num_high_conf > 0 else 0.0
+        low_conf_acc = corrects[low_conf_mask].mean() if num_low_conf > 0 else 0.0
+
+        print(f"[结果] 高置信度准确率: {high_conf_acc*100:.2f}%")
+        print(f"[结果] 低置信度准确率: {low_conf_acc*100:.2f}%")
+
+        save_numpy(os.path.join(output_dir, 'low_conf_indices.npy'), low_conf_indices)
+        low_conf_data = {
+            'X': low_conf_X,
+            'y': low_conf_y,
+            'predictions': low_conf_preds,
+            'confidences': low_conf_confs,
+            'indices': low_conf_indices,
+            'dataset_type': dataset_type,
+        }
+        save_pickle(os.path.join(output_dir, 'low_conf_signals.pkl'), low_conf_data)
+    else:
+        num_low_conf = 0
+        num_high_conf = len(predictions)
+        high_conf_acc = accuracy
+        low_conf_acc = 0.0
+        low_conf_ratio = 0.0
+        print(f"[信息] 纯边侧模式，跳过低置信度筛选")
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→边侧 数据传输耗时（模拟带宽限速）'})
+
+    print(f"[保存] 中间结果已保存到: {output_dir}")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/rml2016_edge_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    report_path = os.path.join(result_dir, 'edge_report.txt')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("="*60 + "\n")
+        f.write("边侧推理报告\n")
+        f.write("="*60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"任务ID: {task_id}\n\n")
+        f.write("=" * 60 + "\n")
+        f.write("配置信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集类型: {dataset_type}\n")
+        if confidence_threshold is not None:
+            f.write(f"置信度阈值: {confidence_threshold}\n")
+        else:
+            f.write(f"置信度阈值: 无（纯边侧模式）\n")
+        f.write(f"批次大小: {batch_size}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("推理结果\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"总样本数: {len(predictions)}\n")
+        f.write(f"整体准确率: {accuracy*100:.2f}%\n\n")
+
+        if confidence_threshold is not None:
+            f.write("=" * 60 + "\n")
+            f.write("置信度分析\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"高置信度样本数: {num_high_conf} ({100-low_conf_ratio:.1f}%)\n")
+            f.write(f"高置信度准确率: {high_conf_acc*100:.2f}%\n\n")
+            f.write(f"低置信度样本数: {num_low_conf} ({low_conf_ratio:.1f}%)\n")
+            f.write(f"低置信度准确率: {low_conf_acc*100:.2f}%\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("置信度统计\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"最小置信度: {confidences.min():.4f}\n")
+        f.write(f"最大置信度: {confidences.max():.4f}\n")
+        f.write(f"平均置信度: {confidences.mean():.4f}\n")
+        f.write(f"中位数置信度: {np.median(confidences):.4f}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("耗时信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"数据加载: {t_data_load:.2f}s\n")
+        f.write(f"推理: {t_infer:.2f}s\n")
+        f.write(f"模型加载+热身: {t_model_load + t_warmup:.2f}s\n")
+        if transfer_info['transfer_time'] > 0:
+            f.write(f"传输: {transfer_info['transfer_time']:.2f}s\n")
+
+    print(f"[报告] 推理报告已保存到: {report_path}")
+
+    result_info = {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'high_conf_samples': int(num_high_conf),
+        'high_conf_accuracy': float(high_conf_acc),
+        'low_conf_samples': int(num_low_conf),
+        'low_conf_accuracy': float(low_conf_acc),
+        'low_conf_ratio': float(low_conf_ratio),
+        'avg_confidence': float(confidences.mean()),
+    }
+
+    print(f"[完成] 边侧推理完成")
+    return result_info
 
 
 @register_task
 def radar_edge_infer_callback(task_id, **kwargs):
     """radar 边侧推理回调"""
-    return edge_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[边侧] 开始执行推理任务")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/radar_edge_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        print(f"[错误] {result['error']}")
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        missing_str = ', '.join(result['missing'])
+        print(f"[错误] 缺少必需参数: {missing_str}")
+        return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    confidence_threshold = config.get('confidence_threshold', None)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    print(f"[配置] 模型路径: {model_path}")
+    print(f"[配置] 模型类型: {model_type}")
+    if confidence_threshold is not None:
+        print(f"[配置] 置信度阈值: {confidence_threshold}")
+    else:
+        print(f"[配置] 置信度阈值: 未设置（纯边侧模式，不筛选低置信度样本）")
+    print(f"[配置] 计算设备: {device}")
+
+    output_pred_path = f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer/predictions.npy"
+    if check_output_exists(task_id, 'radar_edge_infer', 'predictions.npy'):
+        print(f"[跳过] 边侧推理结果已存在，跳过计算")
+        predictions = np.load(output_pred_path)
+        confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer/confidences.npy")
+        result_obj = {'status': 'cached', 'total_samples': len(predictions)}
+        low_conf_path = f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer/low_conf_signals.pkl"
+        if os.path.exists(low_conf_path):
+            low_conf_signals = load_pickle(low_conf_path)
+            result_obj['low_conf_samples'] = len(low_conf_signals['X'])
+        else:
+            result_obj['low_conf_samples'] = 0
+        return result_obj
+
+    print(f"[加载] 从 device_load 加载数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data']['file_name']
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        error_msg = f"加载输入数据失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    print(f"[模型] 正在加载边侧模型...")
+    t_model_load_start = time.time()
+    try:
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        else:
+            error_msg = f"模型文件不存在: {model_path}"
+            print(f"[错误] {error_msg}")
+            return {'status': 'error', 'message': error_msg}
+
+        ckpt_model_type = None
+        internal_cfg = None
+        state_dict = None
+        if isinstance(checkpoint, dict):
+            ckpt_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+            state_dict = checkpoint.get('model_state_dict')
+        if state_dict is None:
+            state_dict = checkpoint
+
+        resolved_model_type = ckpt_model_type or model_type
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+            model.load_state_dict(state_dict)
+
+        print(f"[模型] 成功加载模型权重")
+    except Exception as e:
+        error_msg = f"加载模型失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_efficient(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+
+    accuracy = corrects.mean()
+    print(f"[结果] 边侧整体准确率: {accuracy*100:.2f}%")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/radar_edge_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'corrects.npy'), corrects)
+
+    if confidence_threshold is not None:
+        low_conf_mask = confidences < confidence_threshold
+        low_conf_indices = np.where(low_conf_mask)[0]
+        high_conf_mask = ~low_conf_mask
+
+        num_low_conf = low_conf_mask.sum()
+        num_high_conf = high_conf_mask.sum()
+        low_conf_ratio = num_low_conf / len(predictions) * 100
+
+        print(f"[筛选] 高置信度样本: {num_high_conf} ({100-low_conf_ratio:.1f}%)")
+        print(f"[筛选] 低置信度样本: {num_low_conf} ({low_conf_ratio:.1f}%)")
+
+        low_conf_X = X_data[low_conf_mask]
+        low_conf_y = y_data[low_conf_mask]
+        low_conf_preds = predictions[low_conf_mask]
+        low_conf_confs = confidences[low_conf_mask]
+
+        high_conf_acc = corrects[high_conf_mask].mean() if num_high_conf > 0 else 0.0
+        low_conf_acc = corrects[low_conf_mask].mean() if num_low_conf > 0 else 0.0
+
+        print(f"[结果] 高置信度准确率: {high_conf_acc*100:.2f}%")
+        print(f"[结果] 低置信度准确率: {low_conf_acc*100:.2f}%")
+
+        save_numpy(os.path.join(output_dir, 'low_conf_indices.npy'), low_conf_indices)
+        low_conf_data = {
+            'X': low_conf_X,
+            'y': low_conf_y,
+            'predictions': low_conf_preds,
+            'confidences': low_conf_confs,
+            'indices': low_conf_indices,
+            'dataset_type': dataset_type,
+        }
+        save_pickle(os.path.join(output_dir, 'low_conf_signals.pkl'), low_conf_data)
+    else:
+        num_low_conf = 0
+        num_high_conf = len(predictions)
+        high_conf_acc = accuracy
+        low_conf_acc = 0.0
+        low_conf_ratio = 0.0
+        print(f"[信息] 纯边侧模式，跳过低置信度筛选")
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→边侧 数据传输耗时（模拟带宽限速）'})
+
+    print(f"[保存] 中间结果已保存到: {output_dir}")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/radar_edge_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    report_path = os.path.join(result_dir, 'edge_report.txt')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("="*60 + "\n")
+        f.write("边侧推理报告\n")
+        f.write("="*60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"任务ID: {task_id}\n\n")
+        f.write("=" * 60 + "\n")
+        f.write("配置信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集类型: {dataset_type}\n")
+        if confidence_threshold is not None:
+            f.write(f"置信度阈值: {confidence_threshold}\n")
+        else:
+            f.write(f"置信度阈值: 无（纯边侧模式）\n")
+        f.write(f"批次大小: {batch_size}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("推理结果\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"总样本数: {len(predictions)}\n")
+        f.write(f"整体准确率: {accuracy*100:.2f}%\n\n")
+
+        if confidence_threshold is not None:
+            f.write("=" * 60 + "\n")
+            f.write("置信度分析\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"高置信度样本数: {num_high_conf} ({100-low_conf_ratio:.1f}%)\n")
+            f.write(f"高置信度准确率: {high_conf_acc*100:.2f}%\n\n")
+            f.write(f"低置信度样本数: {num_low_conf} ({low_conf_ratio:.1f}%)\n")
+            f.write(f"低置信度准确率: {low_conf_acc*100:.2f}%\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("置信度统计\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"最小置信度: {confidences.min():.4f}\n")
+        f.write(f"最大置信度: {confidences.max():.4f}\n")
+        f.write(f"平均置信度: {confidences.mean():.4f}\n")
+        f.write(f"中位数置信度: {np.median(confidences):.4f}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("耗时信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"数据加载: {t_data_load:.2f}s\n")
+        f.write(f"推理: {t_infer:.2f}s\n")
+        f.write(f"模型加载+热身: {t_model_load + t_warmup:.2f}s\n")
+        if transfer_info['transfer_time'] > 0:
+            f.write(f"传输: {transfer_info['transfer_time']:.2f}s\n")
+
+    print(f"[报告] 推理报告已保存到: {report_path}")
+
+    result_info = {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'high_conf_samples': int(num_high_conf),
+        'high_conf_accuracy': float(high_conf_acc),
+        'low_conf_samples': int(num_low_conf),
+        'low_conf_accuracy': float(low_conf_acc),
+        'low_conf_ratio': float(low_conf_ratio),
+        'avg_confidence': float(confidences.mean()),
+    }
+
+    print(f"[完成] 边侧推理完成")
+    return result_info
 
 
 @register_task
 def ratr_edge_infer_callback(task_id, **kwargs):
     """ratr 边侧推理回调"""
-    return edge_infer_callback(task_id, **kwargs)
+    print(f"\n{'='*60}")
+    print(f"[边侧] 开始执行推理任务")
+    print(f"{'='*60}")
+
+    config_path = f"{TASKS_ROOT}/{task_id}/input/ratr_edge_infer.json"
+    param_list = ['model_path', 'model_type', 'num_classes', 'input_data']
+
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        print(f"[错误] {result['error']}")
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        missing_str = ', '.join(result['missing'])
+        print(f"[错误] 缺少必需参数: {missing_str}")
+        return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
+
+    model_path = config['model_path']
+    model_type = config['model_type']
+    num_classes = config['num_classes']
+    confidence_threshold = config.get('confidence_threshold', None)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+    batch_size = config.get('batch_size', 128)
+
+    print(f"[配置] 模型路径: {model_path}")
+    print(f"[配置] 模型类型: {model_type}")
+    if confidence_threshold is not None:
+        print(f"[配置] 置信度阈值: {confidence_threshold}")
+    else:
+        print(f"[配置] 置信度阈值: 未设置（纯边侧模式，不筛选低置信度样本）")
+    print(f"[配置] 计算设备: {device}")
+
+    output_pred_path = f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer/predictions.npy"
+    if check_output_exists(task_id, 'ratr_edge_infer', 'predictions.npy'):
+        print(f"[跳过] 边侧推理结果已存在，跳过计算")
+        predictions = np.load(output_pred_path)
+        confidences = np.load(f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer/confidences.npy")
+        result_obj = {'status': 'cached', 'total_samples': len(predictions)}
+        low_conf_path = f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer/low_conf_signals.pkl"
+        if os.path.exists(low_conf_path):
+            low_conf_signals = load_pickle(low_conf_path)
+            result_obj['low_conf_samples'] = len(low_conf_signals['X'])
+        else:
+            result_obj['low_conf_samples'] = 0
+        return result_obj
+
+    print(f"[加载] 从 device_load 加载数据...")
+    input_source = config['input_data']['parent_folder']
+    input_file = config['input_data']['file_name']
+
+    t_data_load_start = time.time()
+    try:
+        input_data = load_from_output(task_id, input_source, input_file)
+        X_data = input_data['X']
+        y_data = input_data['y']
+        dataset_type = input_data['dataset_type']
+        print(f"[加载] 成功加载 {len(X_data)} 个样本")
+    except Exception as e:
+        error_msg = f"加载输入数据失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_data_load = time.time() - t_data_load_start
+    print(f"[计时] 数据加载耗时: {t_data_load:.2f}s")
+
+    bandwidth = config.get('simulate_bandwidth_mbps', None)
+    transfer_info = {'transfer_time': 0}
+    if bandwidth:
+        input_file_path = f"{TASKS_ROOT}/{task_id}/output/{input_source}/{input_file}"
+        transfer_info = simulate_transfer(input_file_path, bandwidth)
+
+    print(f"[模型] 正在加载边侧模型...")
+    t_model_load_start = time.time()
+    try:
+        if os.path.exists(model_path):
+            checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        else:
+            error_msg = f"模型文件不存在: {model_path}"
+            print(f"[错误] {error_msg}")
+            return {'status': 'error', 'message': error_msg}
+
+        ckpt_model_type = None
+        internal_cfg = None
+        state_dict = None
+        if isinstance(checkpoint, dict):
+            ckpt_model_type = checkpoint.get('model_type')
+            internal_cfg = checkpoint.get('internal_cfg')
+            state_dict = checkpoint.get('model_state_dict')
+        if state_dict is None:
+            state_dict = checkpoint
+
+        resolved_model_type = ckpt_model_type or model_type
+        if dataset_type == 'ratr' and resolved_model_type == 'real_resnet7_ratr_cp':
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type, internal_cfg=internal_cfg)
+            model.load_state_dict(state_dict, strict=True)
+        else:
+            model = create_model_by_type(resolved_model_type, num_classes, dataset_type)
+            model.load_state_dict(state_dict)
+
+        print(f"[模型] 成功加载模型权重")
+    except Exception as e:
+        error_msg = f"加载模型失败: {str(e)}"
+        print(f"[错误] {error_msg}")
+        return {'status': 'error', 'message': error_msg}
+    t_model_load = time.time() - t_model_load_start
+
+    predictions, confidences, corrects, t_warmup, t_infer = batch_inference_efficient(
+        model, X_data, y_data, batch_size, device, dataset_type=dataset_type
+    )
+
+    accuracy = corrects.mean()
+    print(f"[结果] 边侧整体准确率: {accuracy*100:.2f}%")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/ratr_edge_infer"
+    os.makedirs(output_dir, exist_ok=True)
+    save_numpy(os.path.join(output_dir, 'predictions.npy'), predictions)
+    save_numpy(os.path.join(output_dir, 'confidences.npy'), confidences)
+    save_numpy(os.path.join(output_dir, 'corrects.npy'), corrects)
+
+    if confidence_threshold is not None:
+        low_conf_mask = confidences < confidence_threshold
+        low_conf_indices = np.where(low_conf_mask)[0]
+        high_conf_mask = ~low_conf_mask
+
+        num_low_conf = low_conf_mask.sum()
+        num_high_conf = high_conf_mask.sum()
+        low_conf_ratio = num_low_conf / len(predictions) * 100
+
+        print(f"[筛选] 高置信度样本: {num_high_conf} ({100-low_conf_ratio:.1f}%)")
+        print(f"[筛选] 低置信度样本: {num_low_conf} ({low_conf_ratio:.1f}%)")
+
+        low_conf_X = X_data[low_conf_mask]
+        low_conf_y = y_data[low_conf_mask]
+        low_conf_preds = predictions[low_conf_mask]
+        low_conf_confs = confidences[low_conf_mask]
+
+        high_conf_acc = corrects[high_conf_mask].mean() if num_high_conf > 0 else 0.0
+        low_conf_acc = corrects[low_conf_mask].mean() if num_low_conf > 0 else 0.0
+
+        print(f"[结果] 高置信度准确率: {high_conf_acc*100:.2f}%")
+        print(f"[结果] 低置信度准确率: {low_conf_acc*100:.2f}%")
+
+        save_numpy(os.path.join(output_dir, 'low_conf_indices.npy'), low_conf_indices)
+        low_conf_data = {
+            'X': low_conf_X,
+            'y': low_conf_y,
+            'predictions': low_conf_preds,
+            'confidences': low_conf_confs,
+            'indices': low_conf_indices,
+            'dataset_type': dataset_type,
+        }
+        save_pickle(os.path.join(output_dir, 'low_conf_signals.pkl'), low_conf_data)
+    else:
+        num_low_conf = 0
+        num_high_conf = len(predictions)
+        high_conf_acc = accuracy
+        low_conf_acc = 0.0
+        low_conf_ratio = 0.0
+        print(f"[信息] 纯边侧模式，跳过低置信度筛选")
+
+    save_timing(output_dir, {
+        'data_load_time': t_data_load,
+        'transfer_time': transfer_info['transfer_time'],
+        'model_load_time': t_model_load,
+        'warmup_time': t_warmup,
+        'inference_time': t_infer,
+    }, field_overrides={'transfer_time': '端侧→边侧 数据传输耗时（模拟带宽限速）'})
+
+    print(f"[保存] 中间结果已保存到: {output_dir}")
+    print(f"[计时] 模型加载: {t_model_load:.2f}s, 热身: {t_warmup:.2f}s, 纯推理: {t_infer:.2f}s")
+
+    result_dir = f"{TASKS_ROOT}/{task_id}/result/ratr_edge_infer"
+    os.makedirs(result_dir, exist_ok=True)
+    report_path = os.path.join(result_dir, 'edge_report.txt')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("="*60 + "\n")
+        f.write("边侧推理报告\n")
+        f.write("="*60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"任务ID: {task_id}\n\n")
+        f.write("=" * 60 + "\n")
+        f.write("配置信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"模型类型: {model_type}\n")
+        f.write(f"数据集类型: {dataset_type}\n")
+        if confidence_threshold is not None:
+            f.write(f"置信度阈值: {confidence_threshold}\n")
+        else:
+            f.write(f"置信度阈值: 无（纯边侧模式）\n")
+        f.write(f"批次大小: {batch_size}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("推理结果\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"总样本数: {len(predictions)}\n")
+        f.write(f"整体准确率: {accuracy*100:.2f}%\n\n")
+
+        if confidence_threshold is not None:
+            f.write("=" * 60 + "\n")
+            f.write("置信度分析\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"高置信度样本数: {num_high_conf} ({100-low_conf_ratio:.1f}%)\n")
+            f.write(f"高置信度准确率: {high_conf_acc*100:.2f}%\n\n")
+            f.write(f"低置信度样本数: {num_low_conf} ({low_conf_ratio:.1f}%)\n")
+            f.write(f"低置信度准确率: {low_conf_acc*100:.2f}%\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("置信度统计\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"最小置信度: {confidences.min():.4f}\n")
+        f.write(f"最大置信度: {confidences.max():.4f}\n")
+        f.write(f"平均置信度: {confidences.mean():.4f}\n")
+        f.write(f"中位数置信度: {np.median(confidences):.4f}\n\n")
+
+        f.write("=" * 60 + "\n")
+        f.write("耗时信息\n")
+        f.write("=" * 60 + "\n")
+        f.write(f"数据加载: {t_data_load:.2f}s\n")
+        f.write(f"推理: {t_infer:.2f}s\n")
+        f.write(f"模型加载+热身: {t_model_load + t_warmup:.2f}s\n")
+        if transfer_info['transfer_time'] > 0:
+            f.write(f"传输: {transfer_info['transfer_time']:.2f}s\n")
+
+    print(f"[报告] 推理报告已保存到: {report_path}")
+
+    result_info = {
+        'status': 'success',
+        'total_samples': len(predictions),
+        'accuracy': float(accuracy),
+        'high_conf_samples': int(num_high_conf),
+        'high_conf_accuracy': float(high_conf_acc),
+        'low_conf_samples': int(num_low_conf),
+        'low_conf_accuracy': float(low_conf_acc),
+        'low_conf_ratio': float(low_conf_ratio),
+        'avg_confidence': float(confidences.mean()),
+    }
+
+    print(f"[完成] 边侧推理完成")
+    return result_info

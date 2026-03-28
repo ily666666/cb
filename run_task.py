@@ -27,7 +27,7 @@ from callback.registry import execute_task
 # 导入 callback 模块以触发 @register_task 装饰器注册
 from callback import device_callback, edge_callback, cloud_callback, train_callback
 from datetime import datetime
-from config_refactor import PIPELINE_MODES, SUPPORTED_TASKS
+from config_refactor import PIPELINE_MODES, SUPPORTED_TASKS, TASKS_ROOT
 
 
 def parse_config_name(config_name):
@@ -74,7 +74,7 @@ def collect_all_timings(task_id):
             'total_transfer': float,
         }
     """
-    output_root = f"./tasks/{task_id}/output"
+    output_root = f"{TASKS_ROOT}/{task_id}/output"
     steps = {}
     total_data_load = 0.0
     total_preprocess = 0.0
@@ -197,7 +197,7 @@ def write_timing_report(task_id, timing_data, total_time=None, pipeline=None):
         return
 
     # 1. 写独立的 timing_summary.txt
-    result_root = f"./tasks/{task_id}/result"
+    result_root = f"{TASKS_ROOT}/{task_id}/result"
     os.makedirs(result_root, exist_ok=True)
 
     report_path = os.path.join(result_root, 'timing_summary.txt')
@@ -213,7 +213,7 @@ def write_timing_report(task_id, timing_data, total_time=None, pipeline=None):
         f.write("\n")
 
     # 2. 追加全局耗时汇总到 final_report.txt
-    report_root = f"./tasks/{task_id}/result"
+    report_root = f"{TASKS_ROOT}/{task_id}/result"
     if os.path.exists(report_root):
         for dirpath, dirnames, filenames in os.walk(report_root):
             for fn in filenames:
@@ -323,7 +323,7 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
         # 写入报告文件
         write_timing_report(task_id, timing_data, total_time, pipeline)
 
-    print(f"\n  结果目录: ./tasks/{task_id}/result/")
+    print(f"\n  结果目录: {TASKS_ROOT}/{task_id}/result/")
     print(f"{'='*60}\n")
 
     return results
@@ -377,7 +377,7 @@ def main():
     args = parser.parse_args()
 
     # 检查任务目录
-    task_dir = f"./tasks/{args.task_id}"
+    task_dir = f"{TASKS_ROOT}/{args.task_id}"
     if not os.path.exists(task_dir):
         print(f"[错误] 任务目录不存在: {task_dir}")
         return
@@ -400,7 +400,7 @@ def main():
         show_summary = args.summary
 
         # 验证配置文件存在
-        config_file = f"./tasks/{args.task_id}/input/{config_name}.json"
+        config_file = f"{TASKS_ROOT}/{args.task_id}/input/{config_name}.json"
         if not os.path.exists(config_file):
             print(f"[错误] 配置文件不存在: {config_file}")
             return
