@@ -30,3 +30,12 @@ tasks/*/output/*
 tasks/*/result/*
 
 *.zip
+
+# Data generation
+gen_link11/
+
+# Frontend
+web/frontend/node_modules/
+web/frontend/package-lock.json
+web/frontend/dist/
+web/frontend/.vite/
