@@ -1,0 +1,12 @@
+{
+    "model_path": "cloud_pth/link11/teacher_model.pth",
+    "model_type": "complex_resnet50_link11_with_attention",
+    "num_classes": 7,
+    "device": "cuda:0",
+    "batch_size": 256,
+    "simulate_bandwidth_mbps": 10,
+    "input_data": {
+        "parent_folder": "link11_device_load",
+        "file_name": "data_batch.pkl"
+    }
+}

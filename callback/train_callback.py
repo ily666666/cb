@@ -2092,3 +2092,369 @@ def ratr_federated_edge_2_callback(task_id, edge_id=None, config_name=None, **kw
 def ratr_federated_server_callback(task_id, **kwargs):
     """ratr 向后兼容：federated_server → federated_cloud"""
     return ratr_federated_cloud_callback(task_id, **kwargs)
+
+
+# ================================================================
+# 5. 边侧独立训练（不联邦）
+# ================================================================
+
+@register_task
+def edge_local_train_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    边侧独立训练统一入口 - 根据 config_name 或 edge_id 路由到具体的边侧回调
+    """
+    # 从 config_name 解析 edge_id
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    
+    # 根据 edge_id 调用对应的回调
+    if edge_id == 1:
+        return edge_local_train_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id == 2:
+        return edge_local_train_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    else:
+        # edge_id=None → 单机模式，edge_local_train_1_callback 内部会处理所有边
+        return edge_local_train_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+
+
+@register_task
+def edge_local_train_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    边侧独立训练 — 各边完全独立训练，不进行联邦聚合
+
+    与联邦学习的区别：
+    - 不需要云侧聚合
+    - 各边侧模型完全独立，互不影响
+    - 适合作为基线对比实验
+
+    单机模式: config=edge_local_train → 处理所有边
+    分布式模式: config=edge_local_train_1 → 只处理边1
+
+    配置: input/edge_local_train.json 或 input/edge_local_train_{N}.json
+    运行:
+      单机: python run_task.py --mode edge_local_train --task_id xxx
+      分布式: python run_task.py --task_id xxx --config link11_edge_local_train_1
+    """
+    print(f"\n{'='*60}")
+    print(f"[边侧独立训练] 开始训练")
+    print(f"{'='*60}")
+
+    ds = get_dataset_from_task_id(task_id)
+    # 解析配置文件路径
+    if config_name:
+        config_path = f"./tasks/{task_id}/input/{config_name}.json"
+    elif edge_id is not None:
+        edge_config = f"./tasks/{task_id}/input/{ds}_edge_local_train_{edge_id}.json"
+        config_path = edge_config if os.path.exists(edge_config) else f"./tasks/{task_id}/input/{ds}_edge_local_train.json"
+    else:
+        config_path = f"./tasks/{task_id}/input/{ds}_edge_local_train.json"
+
+    param_list = ['edge_model_type', 'num_classes', 'dataset_type', 'epochs']
+    result, config = check_parameters(config_path, param_list)
+    if 'error' in result:
+        return {'status': 'error', 'message': result['error']}
+    elif not result['valid']:
+        return {'status': 'error', 'message': f"缺少参数: {', '.join(result['missing'])}"}
+
+    edge_id = config.get('edge_id', edge_id)
+
+    edge_model_type = config['edge_model_type']
+    num_classes = config['num_classes']
+    dataset_type = config['dataset_type']
+    epochs = config['epochs']
+    batch_size = config.get('batch_size', 32)
+    learning_rate = config.get('learning_rate', 0.001)
+    weight_decay = config.get('weight_decay', 1e-4)
+    device = config.get('device', 'cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    output_dir = f"./tasks/{task_id}/output/edge_local_train"
+
+    # 确定要处理的边和数据路径（兼容两种配置格式）
+    input_data = config.get('input_data', {})
+    # 优先从顶层读取 data_path，其次从 input_data 读取
+    data_path = config.get('data_path') or input_data.get('data_path')
+    edge_data_paths = input_data.get('edge_data_paths', config.get('edge_data_paths'))
+    init_model_path = input_data.get('init_model_path', config.get('init_model_path'))
+
+    if data_path and edge_id is not None:
+        edges_to_process = [(edge_id - 1, data_path)]
+        single_edge_mode = True
+        num_edges = edge_id
+    elif edge_data_paths:
+        num_edges = len(edge_data_paths)
+        if edge_id is not None:
+            if edge_id < 1 or edge_id > num_edges:
+                return {'status': 'error',
+                        'message': f'edge_id={edge_id} 超出范围, 共 {num_edges} 个边 (1~{num_edges})'}
+            edges_to_process = [(edge_id - 1, edge_data_paths[edge_id - 1])]
+            single_edge_mode = True
+        else:
+            if check_output_exists(task_id, 'edge_local_train', 'edge_1_local_model.pth'):
+                print(f"[跳过] 边侧独立训练模型已存在")
+                return {'status': 'cached'}
+            edges_to_process = list(enumerate(edge_data_paths))
+            single_edge_mode = False
+    else:
+        return {'status': 'error', 'message': '配置文件缺少 data_path 或 edge_data_paths'}
+
+    mode_label = f"边 {edge_id}" if single_edge_mode else f"全部 {num_edges} 个边"
+    print(f"[模式] 边侧独立训练 — {mode_label}")
+    print(f"[配置] 模型: {edge_model_type}, epochs: {epochs}")
+
+    # 单边模式下的缓存检查
+    if single_edge_mode:
+        target_file = os.path.join(output_dir, f'edge_{edge_id}_local_model.pth')
+        if os.path.exists(target_file):
+            print(f"[跳过] edge_{edge_id}_local_model.pth 已存在")
+            return {'status': 'cached'}
+
+    os.makedirs(output_dir, exist_ok=True)
+    all_results = []
+
+    for edge_idx, edge_path in edges_to_process:
+        eid = edge_idx + 1
+        print(f"\n{'='*60}")
+        print(f"[边侧 {eid}/{num_edges}] 独立训练开始 (数据: {edge_path})")
+        print(f"{'='*60}")
+
+        # 加载数据
+        splits = _load_split_data(edge_path, dataset_type)
+        X_train, y_train = splits['train']
+        X_val, y_val = splits['val']
+        X_test, y_test = splits['test']
+        print(f"[边侧 {eid}] 训练集: {len(X_train)}, 验证集: {len(X_val)}, 测试集: {len(X_test)}")
+
+        train_loader = _make_dataloader(X_train, y_train, batch_size, shuffle=True, dataset_type=dataset_type)
+        val_loader = _make_dataloader(X_val, y_val, batch_size, shuffle=False, dataset_type=dataset_type)
+        test_loader = _make_dataloader(X_test, y_test, batch_size, shuffle=False, dataset_type=dataset_type)
+
+        # 创建模型
+        model = create_model_by_type(edge_model_type, num_classes, dataset_type)
+        
+        # 可选：从已有模型初始化（如从KD模型）
+        if init_model_path and os.path.exists(init_model_path):
+            checkpoint = torch.load(init_model_path, map_location=device)
+            if 'model_state_dict' in checkpoint:
+                model.load_state_dict(checkpoint['model_state_dict'])
+            else:
+                model.load_state_dict(checkpoint)
+            print(f"[边侧 {eid}] 从 {init_model_path} 初始化模型")
+        else:
+            print(f"[边侧 {eid}] 随机初始化模型")
+
+        model.to(device)
+
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+        # 训练循环
+        best_val_acc = 0.0
+        best_model_state = None
+        best_epoch = 0
+
+        print(f"[边侧 {eid}] 开始训练...")
+        start_time = time.time()
+
+        for epoch in range(1, epochs + 1):
+            train_loss, train_acc = _train_one_epoch(
+                model, train_loader, optimizer, criterion, device,
+                epoch_info=(epoch, epochs))
+            val_loss, val_acc = _evaluate(model, val_loader, criterion, device)
+            scheduler.step()
+
+            improved = ""
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                best_model_state = copy.deepcopy(model.state_dict())
+                best_epoch = epoch
+                improved = " ★"
+
+            if epoch % 5 == 0 or epoch == epochs:
+                print(f"  [边{eid}] Epoch {epoch}/{epochs} | "
+                      f"Train: {train_acc*100:.2f}% | Val: {val_acc*100:.2f}% | "
+                      f"Best: {best_val_acc*100:.2f}% (ep{best_epoch}){improved}",
+                      flush=True)
+
+        train_time = time.time() - start_time
+
+        # 测试最佳模型
+        model.load_state_dict(best_model_state)
+        test_loss, test_acc = _evaluate(model, test_loader, criterion, device)
+        print(f"[边侧 {eid}] 训练完成! 耗时: {train_time:.1f}s, "
+              f"最佳验证: {best_val_acc*100:.2f}%, 测试: {test_acc*100:.2f}%")
+
+        # 保存模型
+        save_payload = {
+            'model_state_dict': best_model_state,
+            'model_type': edge_model_type,
+            'num_classes': num_classes,
+            'dataset_type': dataset_type,
+            'best_val_acc': best_val_acc,
+            'test_acc': test_acc,
+            'epoch': best_epoch,
+            'edge_id': eid,
+        }
+        torch.save(save_payload, os.path.join(output_dir, f'edge_{eid}_local_model.pth'))
+        print(f"[边侧 {eid}] 模型已保存: edge_{eid}_local_model.pth")
+
+        all_results.append((eid, {
+            'best_val_acc': best_val_acc,
+            'test_acc': test_acc,
+            'best_epoch': best_epoch,
+            'train_time': train_time,
+        }))
+
+    # 单边模式：只返回该边的结果
+    if single_edge_mode:
+        eid, r = all_results[0]
+        print(f"\n[完成] 边 {eid} 独立训练完成: 验证 {r['best_val_acc']*100:.2f}%, 测试 {r['test_acc']*100:.2f}%")
+        return {
+            'status': 'success',
+            'edge_id': eid,
+            'best_val_acc': float(r['best_val_acc']),
+            'test_acc': float(r['test_acc']),
+            'train_time': r['train_time'],
+        }
+
+    # 全量模式：生成报告
+    result_dir = f"./tasks/{task_id}/result/edge_local_train"
+    os.makedirs(result_dir, exist_ok=True)
+    total_time = sum(r['train_time'] for _, r in all_results)
+    
+    with open(os.path.join(result_dir, 'local_train_report.txt'), 'w', encoding='utf-8') as f:
+        f.write("=" * 60 + "\n边侧独立训练报告（不联邦）\n" + "=" * 60 + "\n\n")
+        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"模型类型: {edge_model_type}\n")
+        f.write(f"数据集: {dataset_type}\n")
+        f.write(f"训练轮数: {epochs}\n")
+        f.write(f"总耗时: {total_time:.1f}s\n\n")
+        f.write("各边侧结果:\n")
+        for eid, r in all_results:
+            f.write(f"  边{eid}: 验证 {r['best_val_acc']*100:.2f}%, "
+                   f"测试 {r['test_acc']*100:.2f}% (epoch {r['best_epoch']})\n")
+
+    print(f"\n{'='*60}")
+    print(f"[完成] 边侧独立训练结果汇总:")
+    for eid, r in all_results:
+        print(f"  边{eid}: 验证 {r['best_val_acc']*100:.2f}%, 测试 {r['test_acc']*100:.2f}%")
+    print(f"{'='*60}")
+
+    return {
+        'status': 'success',
+        'edge_results': [{
+            'edge_id': eid,
+            'best_val_acc': float(r['best_val_acc']),
+            'test_acc': float(r['test_acc']),
+            'train_time': r['train_time'],
+        } for eid, r in all_results],
+    }
+
+
+@register_task
+def edge_local_train_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """
+    边侧独立训练 — 边2
+
+    配置: input/edge_local_train_2.json
+    运行: python run_task.py --task_id xxx --config link11_edge_local_train_2
+    """
+    return edge_local_train_1_callback(task_id, edge_id=edge_id or 2, config_name=config_name, **kwargs)
+
+
+# ================================================================
+# 数据集专用回调 - 边侧独立训练
+# ================================================================
+
+@register_task
+def link11_edge_local_train_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 边侧独立训练统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    return edge_local_train_callback(task_id, edge_id=edge_id, config_name=config_name or 'link11_edge_local_train', **kwargs)
+
+
+@register_task
+def rml2016_edge_local_train_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 边侧独立训练统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    return edge_local_train_callback(task_id, edge_id=edge_id, config_name=config_name or 'rml2016_edge_local_train', **kwargs)
+
+
+@register_task
+def radar_edge_local_train_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 边侧独立训练统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    return edge_local_train_callback(task_id, edge_id=edge_id, config_name=config_name or 'radar_edge_local_train', **kwargs)
+
+
+@register_task
+def ratr_edge_local_train_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 边侧独立训练统一入口"""
+    if config_name and '_' in config_name:
+        parts = config_name.split('_')
+        if parts[-1].isdigit():
+            edge_id = int(parts[-1])
+    return edge_local_train_callback(task_id, edge_id=edge_id, config_name=config_name or 'ratr_edge_local_train', **kwargs)
+
+
+# ================================================================
+# 数据集专用回调 - 边侧独立训练 - 边1和边2
+# ================================================================
+
+@register_task
+def link11_edge_local_train_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 边侧独立训练 - 边1"""
+    return edge_local_train_1_callback(task_id, edge_id=edge_id or 1, config_name=config_name or 'link11_edge_local_train_1', **kwargs)
+
+
+@register_task
+def link11_edge_local_train_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """link11 边侧独立训练 - 边2"""
+    return edge_local_train_2_callback(task_id, edge_id=edge_id or 2, config_name=config_name or 'link11_edge_local_train_2', **kwargs)
+
+
+@register_task
+def rml2016_edge_local_train_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 边侧独立训练 - 边1"""
+    return edge_local_train_1_callback(task_id, edge_id=edge_id or 1, config_name=config_name or 'rml2016_edge_local_train_1', **kwargs)
+
+
+@register_task
+def rml2016_edge_local_train_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """rml2016 边侧独立训练 - 边2"""
+    return edge_local_train_2_callback(task_id, edge_id=edge_id or 2, config_name=config_name or 'rml2016_edge_local_train_2', **kwargs)
+
+
+@register_task
+def radar_edge_local_train_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 边侧独立训练 - 边1"""
+    return edge_local_train_1_callback(task_id, edge_id=edge_id or 1, config_name=config_name or 'radar_edge_local_train_1', **kwargs)
+
+
+@register_task
+def radar_edge_local_train_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """radar 边侧独立训练 - 边2"""
+    return edge_local_train_2_callback(task_id, edge_id=edge_id or 2, config_name=config_name or 'radar_edge_local_train_2', **kwargs)
+
+
+@register_task
+def ratr_edge_local_train_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 边侧独立训练 - 边1"""
+    return edge_local_train_1_callback(task_id, edge_id=edge_id or 1, config_name=config_name or 'ratr_edge_local_train_1', **kwargs)
+
+
+@register_task
+def ratr_edge_local_train_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
+    """ratr 边侧独立训练 - 边2"""
+    return edge_local_train_2_callback(task_id, edge_id=edge_id or 2, config_name=config_name or 'ratr_edge_local_train_2', **kwargs)

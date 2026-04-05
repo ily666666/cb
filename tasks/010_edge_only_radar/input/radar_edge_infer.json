@@ -1,5 +1,5 @@
 {
-    "model_path": "edge_pth/radar/edge_1_model.pth",
+    "model_path": "E:/1Experiments/cb_hfut/tasks/012_train_radar/output/edge_local_train/edge_2_local_model.pth",
     "model_type": "real_resnet20_radar_h",
     "num_classes": 7,
     "device": "cuda:0",

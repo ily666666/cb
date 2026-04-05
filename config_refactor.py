@@ -20,25 +20,25 @@ DATASET_CONFIG = {
         'num_classes': 7,
         'signal_length': 1024,
         'cloud_model': 'complex_resnet50_link11',
-        'edge_model': 'real_resnet20_link11',
+        'edge_model': 'real_resnet9_link11',
     },
     'rml2016': {
         'num_classes': 6,
         'signal_length': 600,
         'cloud_model': 'complex_resnet50_rml2016',
-        'edge_model': 'real_resnet20_rml2016',
+        'edge_model': 'real_resnet11_rml2016',
     },
     'radar': {
         'num_classes': 7,
         'signal_length': 500,
         'cloud_model': 'complex_resnet50_radar',
-        'edge_model': 'real_resnet20_radar',
+        'edge_model': 'real_resnet20_radar_h',
     },
     'ratr': {
         'num_classes': 3,
         'signal_length': 1024,
         'cloud_model': 'real_resnet101_ratr',
-        'edge_model': 'real_resnet10_ratr',
+        'edge_model': 'real_resnet7_ratr_cp',
     },
 }
 
@@ -60,26 +60,27 @@ SUPPORTED_TASKS = [
     # 训练类
     'cloud_pretrain',           # 预训练教师模型
     'edge_kd',                  # 知识蒸馏-各边分别蒸馏
+    'edge_local_train',         # 边侧独立训练（不联邦）
     'federated_train',          # 联邦学习训练（单机模拟）
     'federated_cloud',          # 联邦学习-云侧聚合（分布式模式）
     'federated_edge',           # 联邦学习-边侧本地训练（分布式模式）
     'federated_server',         # 向后兼容旧名称 → federated_cloud
     # link11 数据集专用
     'link11_device_load', 'link11_edge_infer', 'link11_cloud_infer', 'link11_cloud_direct_infer',
-    'link11_cloud_pretrain', 'link11_edge_kd', 'link11_federated_train',
+    'link11_cloud_pretrain', 'link11_edge_kd', 'link11_edge_local_train', 'link11_federated_train',
     'link11_federated_cloud', 'link11_federated_edge', 'link11_federated_server',
     # rml2016 数据集专用
     'rml2016_device_load', 'rml2016_edge_infer', 'rml2016_cloud_infer', 'rml2016_cloud_direct_infer',
-    'rml2016_cloud_pretrain', 'rml2016_edge_kd', 'rml2016_federated_train',
+    'rml2016_cloud_pretrain', 'rml2016_edge_kd', 'rml2016_edge_local_train', 'rml2016_federated_train',
     'rml2016_federated_cloud', 'rml2016_federated_edge', 'rml2016_federated_server',
     # radar 数据集专用
     'radar_device_load', 'radar_edge_infer', 'radar_cloud_infer', 'radar_cloud_direct_infer',
-    'radar_cloud_pretrain', 'radar_edge_kd', 'radar_federated_train',
+    'radar_cloud_pretrain', 'radar_edge_kd', 'radar_edge_local_train', 'radar_federated_train',
     'radar_federated_cloud', 'radar_federated_edge', 'radar_federated_server',
 
     # ratr 数据集专用
     'ratr_device_load', 'ratr_edge_infer', 'ratr_cloud_infer', 'ratr_cloud_direct_infer',
-    'ratr_cloud_pretrain', 'ratr_edge_kd', 'ratr_federated_train',
+    'ratr_cloud_pretrain', 'ratr_edge_kd', 'ratr_edge_local_train', 'ratr_federated_train',
     'ratr_federated_cloud', 'ratr_federated_edge', 'ratr_federated_server',
 ]
 
@@ -92,6 +93,7 @@ PIPELINE_MODES = {
     # 训练模式
     'pretrain': ['cloud_pretrain'],
     'knowledge_distillation': ['edge_kd'],
+    'edge_local_train': ['edge_local_train'],
     'federated_learning': ['federated_train'],
     'federated_cloud': ['federated_cloud'],
     'federated_edge': ['federated_edge'],

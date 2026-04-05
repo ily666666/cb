@@ -54,7 +54,8 @@ def parse_config_name(config_name):
         # 支持原始和数据集前缀版本
         edge_kd_bases = ['edge_kd', 'link11_edge_kd', 'rml2016_edge_kd', 'radar_edge_kd', 'ratr_edge_kd']
         fed_edge_bases = ['federated_edge', 'link11_federated_edge', 'rml2016_federated_edge', 'radar_federated_edge', 'ratr_federated_edge']
-        if base in edge_kd_bases + fed_edge_bases:
+        edge_local_train_bases = ['edge_local_train', 'link11_edge_local_train', 'rml2016_edge_local_train', 'radar_edge_local_train', 'ratr_edge_local_train']
+        if base in edge_kd_bases + fed_edge_bases + edge_local_train_bases:
             return base, num
     return config_name, None
 

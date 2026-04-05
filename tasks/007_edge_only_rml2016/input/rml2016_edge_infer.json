@@ -1,6 +1,6 @@
 {
-    "model_path": "edge_pth/rml2016/edge_1_model.pth",
-    "model_type": "real_resnet20_rml2016_h",
+    "model_path": "E:/1Experiments/cb_hfut/tasks/011_train_rml2016/output/edge_local_train/edge_2_local_model.pth",
+    "model_type": "real_resnet11_rml2016",
     "num_classes": 6,
     "device": "cuda:0",
     "batch_size": 32,
