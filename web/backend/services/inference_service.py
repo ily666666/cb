@@ -22,6 +22,7 @@ INFERENCE_MODES = {
 TRAIN_MODES = {
     "pretrain": {"label": "预训练教师模型", "steps": ["cloud_pretrain"]},
     "knowledge_distillation": {"label": "知识蒸馏", "steps": ["edge_kd"]},
+    "edge_local_train": {"label": "边侧本地训练", "steps": ["edge_local_train"]},
     "federated_learning": {"label": "联邦学习", "steps": ["federated_train"]},
     "full_train": {"label": "完整训练", "steps": ["cloud_pretrain", "edge_kd", "federated_train"]},
 }

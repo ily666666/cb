@@ -40,14 +40,7 @@ npm run dev
 
 然后访问 http://localhost:3000
 
-### 方式二：一键启动
-
-```bash
-cd web
-bash start_dev.sh
-```
-
-### 方式三：生产部署
+### 方式二：生产部署
 
 ```bash
 # 构建前端
@@ -116,8 +109,6 @@ web/
 │           ├── Visualization.vue# 可视化
 │           ├── Inference.vue   # 推理计算
 │           └── Models.vue      # 模型管理
-├── start.sh                    # 生产启动脚本
-├── start_dev.sh                # 开发启动脚本
 └── README.md
 ```
 
