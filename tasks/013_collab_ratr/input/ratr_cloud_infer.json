@@ -19,7 +19,7 @@
 
     "_注释_input_data": "协同模式下读取 edge_infer 产生的低置信度样本",
     "input_data": {
-        "parent_folder": "edge_infer",
+        "parent_folder": "ratr_edge_infer",
         "signals_file": "low_conf_signals.pkl"
     }
 }
