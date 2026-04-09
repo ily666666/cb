@@ -431,12 +431,22 @@ def cloud_pretrain_callback(task_id, config_name=None, **kwargs):
 # 2. 知识蒸馏（分别蒸馏：各边用自己的数据 + 教师模型）
 # ================================================================
 
+def _save_kd_history(output_dir, all_results):
+    """将各边蒸馏训练历史保存为 kd_history.pkl，供前端可视化"""
+    kd_hist_all = {}
+    for eid, r in all_results:
+        if 'kd_history' in r:
+            kd_hist_all[f'edge_{eid}'] = r['kd_history']
+    if kd_hist_all:
+        save_pickle(os.path.join(output_dir, 'kd_history.pkl'), kd_hist_all)
+
+
 def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels,
                           alpha, temperature, epochs, batch_size, learning_rate,
                           device, label="", dataset_type=None):
     """蒸馏训练一个学生模型
 
-    返回: {'best_state': state_dict, 'best_acc': float, 'best_epoch': int, 'train_time': float}
+    返回: {'best_state': state_dict, 'best_acc': float, 'best_epoch': int, 'train_time': float, 'kd_history': dict}
     """
     optimizer = optim.Adam(student.parameters(), lr=learning_rate)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
@@ -466,6 +476,13 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
     kd_log_interval = 100
     prefix = f"[{label}] " if label else ""
 
+    kd_history = {
+        'train_loss': [], 'ce_loss': [], 'kd_loss': [],
+        'guidance_intensity': [], 'mean_confidence': [],
+        'train_acc': [], 'test_acc': [],
+        'alpha': alpha, 'temperature': temperature,
+    }
+
     print(f"\n{prefix}开始蒸馏 (alpha={alpha}, T={temperature}, 每轮 {total_batches} batch, 训练集 {len(X_train)} 样本)...")
     best_test_acc = 0.0
     best_state = None
@@ -475,9 +492,12 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
     for epoch in range(1, epochs + 1):
         student.train()
         total_loss = 0.0
+        total_ce = 0.0
+        total_kd = 0.0
         correct = 0
         total = 0
         epoch_start = time.time()
+        epoch_conf_sum = 0.0
 
         for batch_idx, (batch_X, batch_y, batch_soft) in enumerate(train_loader):
             batch_X = batch_X.to(device)
@@ -496,10 +516,17 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
             torch.nn.utils.clip_grad_norm_(student.parameters(), max_norm=5.0)
             optimizer.step()
 
-            total_loss += loss.item() * batch_X.size(0)
+            bs = batch_X.size(0)
+            total_loss += loss.item() * bs
+            total_ce += ce_loss.item() * bs
+            total_kd += kd_loss.item() * bs
             _, predicted = torch.max(student_logits, 1)
             correct += (predicted == batch_y).sum().item()
-            total += batch_y.size(0)
+            total += bs
+
+            with torch.no_grad():
+                conf = F.softmax(student_logits, dim=1).max(dim=1)[0].sum().item()
+                epoch_conf_sum += conf
 
             if (batch_idx + 1) % kd_log_interval == 0:
                 running_acc = correct / total if total > 0 else 0
@@ -513,7 +540,24 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
         train_acc = correct / total
         epoch_time = time.time() - epoch_start
 
+        avg_loss = total_loss / total
+        avg_ce = total_ce / total
+        avg_kd = total_kd / total
+        mean_conf = epoch_conf_sum / total
+
+        kd_contrib = alpha * avg_kd
+        ce_contrib = (1 - alpha) * avg_ce
+        guidance = kd_contrib / (kd_contrib + ce_contrib + 1e-8)
+
         _, test_acc = _evaluate(student, test_loader, ce_criterion, device)
+
+        kd_history['train_loss'].append(avg_loss)
+        kd_history['ce_loss'].append(avg_ce)
+        kd_history['kd_loss'].append(avg_kd)
+        kd_history['guidance_intensity'].append(guidance)
+        kd_history['mean_confidence'].append(mean_conf)
+        kd_history['train_acc'].append(train_acc)
+        kd_history['test_acc'].append(test_acc)
 
         improved = ""
         if test_acc > best_test_acc:
@@ -527,6 +571,7 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
         eta_min, eta_sec = divmod(int(eta), 60)
         print(f"  {prefix}Epoch {epoch}/{epochs} ({epoch_time:.1f}s, ETA {eta_min}m{eta_sec:02d}s) | "
               f"Train: {train_acc*100:.2f}% | Test: {test_acc*100:.2f}% | "
+              f"CE={avg_ce:.4f} KD={avg_kd:.4f} guidance={guidance:.3f} | "
               f"Best: {best_test_acc*100:.2f}% (ep{best_epoch}){improved}",
               flush=True)
 
@@ -538,6 +583,7 @@ def _kd_train_one_student(student, X_train, y_train, X_test, y_test, soft_labels
         'best_acc': best_test_acc,
         'best_epoch': best_epoch,
         'train_time': total_time,
+        'kd_history': kd_history,
     }
 
 @register_task
@@ -716,6 +762,14 @@ def edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
         all_results.append((eid, kd_result))
+
+    # 保存蒸馏训练历史（用于可视化）
+    kd_hist_all = {}
+    for eid, r in all_results:
+        if 'kd_history' in r:
+            kd_hist_all[f'edge_{eid}'] = r['kd_history']
+    if kd_hist_all:
+        save_pickle(os.path.join(output_dir, 'kd_history.pkl'), kd_hist_all)
 
     # 单边模式：只保存该边的模型，不生成 student_model.pth（等所有边完成后由 federated_train 聚合）
     if single_edge_mode:
@@ -926,6 +980,8 @@ def edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
         all_results.append((eid, kd_result))
+
+    _save_kd_history(output_dir, all_results)
 
     # 单边模式：只保存该边的模型，不生成 student_model.pth（等所有边完成后由 federated_train 聚合）
     if single_edge_mode:
@@ -1943,6 +1999,14 @@ def link11_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return link11_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     elif edge_id == 2:
         return link11_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id is None:
+        r1 = link11_edge_kd_1_callback(task_id, edge_id=1, config_name='link11_edge_kd_1', **kwargs)
+        if r1.get('status') == 'error':
+            return r1
+        r2 = link11_edge_kd_2_callback(task_id, edge_id=2, config_name='link11_edge_kd_2', **kwargs)
+        if r2.get('status') == 'error':
+            return r2
+        return {'status': 'success', 'edge_1': r1, 'edge_2': r2}
     else:
         return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
 
@@ -2085,6 +2149,8 @@ def link11_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs)
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
         all_results.append((eid, kd_result))
+
+    _save_kd_history(output_dir, all_results)
 
     if single_edge_mode:
         eid, r = all_results[0]
@@ -2275,6 +2341,8 @@ def link11_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs)
         print(f"[边侧 {eid}] 模型已保存: student_edge_{eid}.pth")
 
         all_results.append((eid, kd_result))
+
+    _save_kd_history(output_dir, all_results)
 
     if single_edge_mode:
         eid, r = all_results[0]
@@ -3236,6 +3304,8 @@ def rml2016_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs
         }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         all_results.append((eid, kd_result))
 
+    _save_kd_history(output_dir, all_results)
+
     if single_edge_mode:
         eid, r = all_results[0]
         return {
@@ -3395,6 +3465,8 @@ def rml2016_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs
             'edge_id': eid,
         }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         all_results.append((eid, kd_result))
+
+    _save_kd_history(output_dir, all_results)
 
     if single_edge_mode:
         eid, r = all_results[0]
@@ -4256,6 +4328,8 @@ def radar_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
         }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         all_results.append((eid, kd_result))
 
+    _save_kd_history(output_dir, all_results)
+
     if single_edge_mode:
         eid, r = all_results[0]
         return {
@@ -4396,6 +4470,8 @@ def radar_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
             'edge_id': eid,
         }, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         all_results.append((eid, kd_result))
+
+    _save_kd_history(output_dir, all_results)
 
     if single_edge_mode:
         eid, r = all_results[0]
@@ -5059,6 +5135,7 @@ def ratr_edge_kd_1_callback(task_id, edge_id=None, config_name=None, **kwargs):
                     'dataset_type': dataset_type, 'best_test_acc': kd_result['best_acc'], 'epoch': kd_result['best_epoch'],
                     'edge_id': eid}, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         all_results.append((eid, kd_result))
+    _save_kd_history(output_dir, all_results)
     if single_edge_mode:
         eid, r = all_results[0]
         return {'status': 'success', 'edge_id': eid, 'best_test_acc': float(r['best_acc']), 'train_time': r['train_time']}
@@ -5171,6 +5248,7 @@ def ratr_edge_kd_2_callback(task_id, edge_id=None, config_name=None, **kwargs):
                     'dataset_type': dataset_type, 'best_test_acc': kd_result['best_acc'], 'epoch': kd_result['best_epoch'],
                     'edge_id': eid}, os.path.join(output_dir, f'student_edge_{eid}.pth'))
         all_results.append((eid, kd_result))
+    _save_kd_history(output_dir, all_results)
     if single_edge_mode:
         eid, r = all_results[0]
         return {'status': 'success', 'edge_id': eid, 'best_test_acc': float(r['best_acc']), 'train_time': r['train_time']}

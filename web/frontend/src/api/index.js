@@ -54,3 +54,12 @@ export const modelApi = {
   detail: (path) => api.get('/models/detail', { params: { path } }),
   remove: (path) => api.delete('/models/', { params: { path } }),
 }
+
+export const lightweightApi = {
+  methods: () => api.get('/lightweight/methods'),
+  models: () => api.get('/lightweight/models'),
+  datasets: () => api.get('/lightweight/datasets'),
+  history: () => api.get('/lightweight/history'),
+  run: (data) => api.post('/lightweight/run', data),
+  status: () => api.get('/lightweight/status'),
+}

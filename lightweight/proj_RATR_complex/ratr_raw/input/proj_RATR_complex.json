@@ -1,0 +1,21 @@
+{
+    "complex_model_path": "/home/lmc501/zhangzhongqian/qc+slimming/proj/proj_RATR_complex/models/ratr_complex_model.pth",
+    "complex_model_name": "se_resnet101_1d",
+    "num_classes": 3,
+    "in_channels": 1,
+    "dropout_rate": 0.1,
+    "device": "cuda:0",
+    "batch_size": 512,
+    "shuffle": false,
+
+    "save_dir": "./proj_RATR_complex/{}/result",
+    "output_dir": "./proj_RATR_complex/{}/output",
+    "input_dir": "./proj_RATR_complex/{}/input",
+    "test_files": [
+      "./proj_RATR_complex/dataset/Class1_data",
+      "./proj_RATR_complex/dataset/Class2_data",
+      "./proj_RATR_complex/dataset/Class3_data"
+    ],
+    "labels": [0, 1, 2],
+    "var_name": "tarHRRP_inScene_db"
+}

@@ -37,5 +37,6 @@ const navItems = [
   { path: '/visualization', label: '数据处理可视化', icon: 'DataAnalysis' },
   { path: '/inference', label: '模型推理计算', icon: 'Cpu' },
   { path: '/models', label: '模型算法管理', icon: 'Setting' },
+  { path: '/lightweight', label: '模型轻量化', icon: 'ScaleToOriginal' },
 ]
 </script>

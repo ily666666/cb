@@ -14,7 +14,7 @@
     "num_classes": 7,
 
     "_注释_epochs": "训练轮数，一般 30~100",
-    "epochs": 10,
+    "epochs": 3,
 
     "_注释_batch_size": "训练批次大小",
     "batch_size": 2048,
@@ -26,5 +26,5 @@
     "weight_decay": 1e-4,
 
     "_注释_device": "训练设备",
-    "device": "cuda:6"
+    "device": "cuda:0"
 }

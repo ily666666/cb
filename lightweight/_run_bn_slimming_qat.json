@@ -1,0 +1,24 @@
+{
+  "complex_model_path": "/home/user/coderepository/cb/./tasks/004_train_link11/output/link11_cloud_pretrain/teacher_model.pth",
+  "complex_model_name": "se_resnet101_1d",
+  "num_classes": 3,
+  "in_channels": 1,
+  "dropout_rate": 0.1,
+  "device": "cuda:0",
+  "batch_size": 512,
+  "shuffle": false,
+  "save_dir": "/home/lmc501/damawa/moxingyasuo/proj/projPruneQuantize/result",
+  "output_dir": "/home/lmc501/damawa/moxingyasuo/proj/projPruneQuantize/output",
+  "input_dir": "/home/lmc501/damawa/moxingyasuo/proj/proj_RATR_complex/ratr_raw/input",
+  "test_files": [
+    "/home/lmc501/damawa/moxingyasuo/proj/proj_RATR_complex/dataset/Class1_data",
+    "/home/lmc501/damawa/moxingyasuo/proj/proj_RATR_complex/dataset/Class2_data",
+    "/home/lmc501/damawa/moxingyasuo/proj/proj_RATR_complex/dataset/Class3_data"
+  ],
+  "labels": [
+    0,
+    1,
+    2
+  ],
+  "var_name": "tarHRRP_inScene_db"
+}

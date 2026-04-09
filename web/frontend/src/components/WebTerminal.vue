@@ -21,6 +21,8 @@ import { ref, watch, nextTick, onUnmounted } from 'vue'
 const props = defineProps({
   taskId: { type: String, default: '' },
   title: { type: String, default: 'Terminal' },
+  pollFn: { type: Function, default: null },
+  pollInterval: { type: Number, default: 2000 },
 })
 
 const emit = defineEmits(['done'])
@@ -75,6 +77,8 @@ function scrollToBottom() {
   })
 }
 
+let pollTimer = null
+
 function connect(taskId) {
   disconnect()
   if (!taskId) return
@@ -109,22 +113,58 @@ function connect(taskId) {
   ws.onerror = () => { connected.value = false }
 }
 
+function startPolling() {
+  stopPolling()
+  lines.value = []
+  done.value = false
+  connected.value = true
+  pollTimer = setInterval(async () => {
+    if (!props.pollFn) return
+    try {
+      const s = await props.pollFn()
+      if (s.log) {
+        lines.value = s.log.split('\n')
+        scrollToBottom()
+      }
+      if (!s.running) {
+        done.value = true
+        connected.value = false
+        stopPolling()
+        emit('done', s)
+      }
+    } catch (e) {
+      console.error(e)
+    }
+  }, props.pollInterval)
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
 function disconnect() {
   if (ws) {
     ws.close()
     ws = null
   }
+  stopPolling()
+  connected.value = false
+}
+
+function reset() {
+  lines.value = []
+  done.value = false
   connected.value = false
 }
 
 watch(() => props.taskId, (id) => {
   if (id) connect(id)
-  else disconnect()
+  else if (!props.pollFn) disconnect()
 }, { immediate: true })
 
 onUnmounted(() => disconnect())
 
-defineExpose({ connect, disconnect })
+defineExpose({ connect, disconnect, startPolling, stopPolling, reset })
 </script>
 
 <style scoped>

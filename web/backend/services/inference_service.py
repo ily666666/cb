@@ -125,46 +125,69 @@ def _load_train_history(task_id: str) -> Dict[str, Any]:
         "federated_train": "联邦训练",
     }
 
+    def _to_list(v):
+        if hasattr(v, 'tolist'):
+            return v.tolist()
+        if isinstance(v, list) and v and hasattr(v[0], 'tolist'):
+            return [x.tolist() if hasattr(x, 'tolist') else x for x in v]
+        return v
+
+    def _resolve_label(step_dir):
+        label = step_label_map.get(step_dir, step_dir)
+        for k2, v2 in step_label_map.items():
+            if step_dir.endswith(k2) or step_dir.startswith(k2):
+                label = v2
+                break
+        return label
+
     histories = {}
     for step_dir in sorted(os.listdir(output_root)):
         step_path = os.path.join(output_root, step_dir)
+
+        # train_history.pkl — 预训练 / 联邦学习
         hist_path = os.path.join(step_path, "train_history.pkl")
-        if not os.path.isfile(hist_path):
-            continue
-        try:
-            import numpy as np
-            with open(hist_path, 'rb') as f:
-                raw = pickle.load(f)
-            if not isinstance(raw, dict):
-                continue
+        if os.path.isfile(hist_path):
+            try:
+                import numpy as np
+                with open(hist_path, 'rb') as f:
+                    raw = pickle.load(f)
+                if isinstance(raw, dict):
+                    hist_data = {k: _to_list(v) for k, v in raw.items()}
+                    hist_data["_step"] = step_dir
+                    hist_data["_label"] = _resolve_label(step_dir)
 
-            def _to_list(v):
-                if hasattr(v, 'tolist'):
-                    return v.tolist()
-                if isinstance(v, list) and v and hasattr(v[0], 'tolist'):
-                    return [x.tolist() if hasattr(x, 'tolist') else x for x in v]
-                return v
+                    if "train_loss" in hist_data:
+                        hist_data["_type"] = "pretrain"
+                    elif "round" in hist_data:
+                        hist_data["_type"] = "federated"
+                    else:
+                        hist_data["_type"] = "unknown"
 
-            label = step_label_map.get(step_dir, step_dir)
-            for k2, v2 in step_label_map.items():
-                if step_dir.endswith(k2) or step_dir.startswith(k2):
-                    label = v2
-                    break
+                    histories[step_dir] = hist_data
+            except Exception:
+                pass
 
-            hist_data = {k: _to_list(v) for k, v in raw.items()}
-            hist_data["_step"] = step_dir
-            hist_data["_label"] = label
-
-            if "train_loss" in hist_data:
-                hist_data["_type"] = "pretrain"
-            elif "round" in hist_data:
-                hist_data["_type"] = "federated"
-            else:
-                hist_data["_type"] = "unknown"
-
-            histories[step_dir] = hist_data
-        except Exception:
-            pass
+        # kd_history.pkl — 知识蒸馏过程
+        kd_hist_path = os.path.join(step_path, "kd_history.pkl")
+        if os.path.isfile(kd_hist_path):
+            try:
+                import numpy as np
+                with open(kd_hist_path, 'rb') as f:
+                    raw = pickle.load(f)
+                if isinstance(raw, dict):
+                    edges = {}
+                    for edge_key, edge_hist in raw.items():
+                        if isinstance(edge_hist, dict):
+                            edges[edge_key] = {k: _to_list(v) for k, v in edge_hist.items()}
+                    kd_key = step_dir + "_kd"
+                    histories[kd_key] = {
+                        "_type": "distillation",
+                        "_step": step_dir,
+                        "_label": _resolve_label(step_dir) + " — 蒸馏过程",
+                        "edges": edges,
+                    }
+            except Exception:
+                pass
 
     return histories
 

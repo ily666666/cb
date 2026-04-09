@@ -6,6 +6,7 @@ const routes = [
   { path: '/visualization', name: 'Visualization', component: () => import('../views/Visualization.vue'), meta: { title: '数据处理可视化' } },
   { path: '/inference', name: 'Inference', component: () => import('../views/Inference.vue'), meta: { title: '模型推理计算' } },
   { path: '/models', name: 'Models', component: () => import('../views/Models.vue'), meta: { title: '模型算法管理' } },
+  { path: '/lightweight', name: 'Lightweight', component: () => import('../views/Lightweight.vue'), meta: { title: '模型轻量化' } },
 ]
 
 const router = createRouter({

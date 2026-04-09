@@ -131,6 +131,52 @@
           <div class="card-title"><el-icon><TrendCharts /></el-icon> {{ hist._label }} — 准确率曲线</div>
           <div :ref="el => setTrainChartRef(stepKey + '_fed', el)" class="chart-container"></div>
         </div>
+
+        <!-- 蒸馏过程可视化 -->
+        <div class="card" v-if="hist._type === 'distillation'">
+          <div class="card-title"><el-icon><Connection /></el-icon> {{ hist._label }}</div>
+          <div v-if="hist.edges && Object.keys(hist.edges).length">
+            <el-tabs type="border-card" style="background: transparent;" v-model="kdActiveTab">
+              <el-tab-pane v-for="(edgeHist, edgeKey) in hist.edges" :key="edgeKey" :label="'边侧 ' + edgeKey.replace('edge_', '')" :name="edgeKey">
+                <div style="margin-bottom: 12px; font-size: 13px; color: var(--text-secondary);">
+                  蒸馏参数:
+                  <el-tag size="small" style="margin-left: 4px;">α = {{ edgeHist.alpha }}</el-tag>
+                  <el-tag size="small" type="warning" style="margin-left: 4px;">T = {{ edgeHist.temperature }}</el-tag>
+                  <el-tag size="small" type="info" style="margin-left: 4px;">{{ edgeHist.train_acc?.length }} Epochs</el-tag>
+                </div>
+                <div class="grid-2">
+                  <div :ref="el => setTrainChartRef(stepKey + '_' + edgeKey + '_loss', el)" class="chart-container"></div>
+                  <div :ref="el => setTrainChartRef(stepKey + '_' + edgeKey + '_acc', el)" class="chart-container"></div>
+                </div>
+                <div class="grid-2">
+                  <div :ref="el => setTrainChartRef(stepKey + '_' + edgeKey + '_guidance', el)" class="chart-container"></div>
+                  <div :ref="el => setTrainChartRef(stepKey + '_' + edgeKey + '_conf', el)" class="chart-container"></div>
+                </div>
+                <div class="kd-explain">
+                  <div class="kd-explain-title"><el-icon><InfoFilled /></el-icon> 指标说明</div>
+                  <div class="kd-explain-grid">
+                    <div class="kd-explain-item">
+                      <span class="kd-dot" style="background:#e94560"></span>
+                      <b>Loss 分解</b>：总损失 = (1-α)×CE + α×KD。CE Loss 衡量与真实标签的差距（硬标签），KD Loss 衡量与教师预测的差距（软标签）。
+                    </div>
+                    <div class="kd-explain-item">
+                      <span class="kd-dot" style="background:#53a8ff"></span>
+                      <b>准确率</b>：训练准确率（蓝色实线）和测试准确率（绿色虚线），反映学生模型在蒸馏过程中的学习效果。
+                    </div>
+                    <div class="kd-explain-item">
+                      <span class="kd-dot" style="background:#ff9a3e"></span>
+                      <b>教师指导强度</b>：KD Loss 在总 Loss 中的实际占比（α×KD / 总Loss）。虽然 α 是固定的，但两部分 Loss 的绝对值会变化，导致实际指导强度随训练动态波动。指导强度高说明教师影响大，低说明学生逐渐独立。
+                    </div>
+                    <div class="kd-explain-item">
+                      <span class="kd-dot" style="background:#00d4aa"></span>
+                      <b>学生置信度</b>：学生模型输出 softmax 后最大概率的平均值。置信度越高说明学生对预测越"确定"，通常随训练逐步提升。
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+          </div>
+        </div>
       </template>
 
       <div class="card" v-if="!Object.keys(visData.histories || {}).length">
@@ -153,7 +199,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { taskApi, inferenceApi, dataApi } from '../api'
 import * as echarts from 'echarts'
 
@@ -168,6 +214,7 @@ let pieChart = null
 
 const trainChartRefs = {}
 let trainCharts = []
+const kdActiveTab = ref('')
 
 function setTrainChartRef(key, el) {
   if (el) trainChartRefs[key] = el
@@ -346,6 +393,10 @@ function renderTrainCharts() {
       renderPretrainCharts(stepKey, hist)
     } else if (hist._type === 'federated') {
       renderFederatedChart(stepKey, hist)
+    } else if (hist._type === 'distillation') {
+      const firstEdge = Object.keys(hist.edges || {})[0]
+      if (firstEdge && !kdActiveTab.value) kdActiveTab.value = firstEdge
+      renderDistillationCharts(stepKey, hist)
     }
   }
 }
@@ -435,6 +486,147 @@ function renderFederatedChart(stepKey, hist) {
   })
 }
 
+function renderDistillationCharts(stepKey, hist) {
+  for (const [edgeKey, eh] of Object.entries(hist.edges || {})) {
+    if (edgeKey !== kdActiveTab.value) continue
+    const epochs = eh.train_acc?.map((_, i) => i + 1) || []
+    const prefix = stepKey + '_' + edgeKey
+    const labelInterval = Math.max(0, Math.ceil(epochs.length / 10) - 1)
+    const kdXAxis = { type: 'category', data: epochs, name: 'Epoch', axisLabel: { color: '#a0a0a0', interval: labelInterval }, nameTextStyle: { color: '#a0a0a0' } }
+
+    function initKdChart(el) {
+      const c = echarts.init(el, 'dark')
+      c._kdChart = true
+      trainCharts.push(c)
+      return c
+    }
+
+    const lossEl = trainChartRefs[prefix + '_loss']
+    if (lossEl) {
+      const chart = initKdChart(lossEl)
+      chart.setOption({
+        backgroundColor: 'transparent',
+        title: { text: 'Loss 分解', left: 'center', top: 4, textStyle: { color: '#e0e0e0', fontSize: 14 } },
+        tooltip: { trigger: 'axis' },
+        legend: { top: 28, textStyle: { color: '#a0a0a0', fontSize: 11 } },
+        grid: { left: 55, right: 20, top: 60, bottom: 35 },
+        xAxis: kdXAxis,
+        yAxis: { type: 'value', name: 'Loss', axisLabel: { color: '#a0a0a0' }, nameTextStyle: { color: '#a0a0a0' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        series: [
+          { name: '总 Loss', type: 'line', data: eh.train_loss, symbol: 'none', lineStyle: { width: 2.5 }, itemStyle: { color: '#e94560' } },
+          { name: 'CE Loss (硬标签)', type: 'line', data: eh.ce_loss, symbol: 'none', lineStyle: { width: 1.8, type: 'dashed' }, itemStyle: { color: '#f0c040' } },
+          { name: 'KD Loss (软标签)', type: 'line', data: eh.kd_loss, symbol: 'none', lineStyle: { width: 1.8, type: 'dashed' }, itemStyle: { color: '#b388ff' } },
+        ],
+      })
+    }
+
+    const accEl = trainChartRefs[prefix + '_acc']
+    if (accEl) {
+      const chart = initKdChart(accEl)
+      const toPercent = arr => arr?.map(v => +(v * 100).toFixed(2)) || []
+      chart.setOption({
+        backgroundColor: 'transparent',
+        title: { text: '学生模型准确率', left: 'center', top: 4, textStyle: { color: '#e0e0e0', fontSize: 14 } },
+        tooltip: { trigger: 'axis', valueFormatter: v => v + '%' },
+        legend: { top: 28, textStyle: { color: '#a0a0a0', fontSize: 11 } },
+        grid: { left: 55, right: 20, top: 60, bottom: 35 },
+        xAxis: kdXAxis,
+        yAxis: { type: 'value', name: '%', min: v => Math.max(0, Math.floor(v.min - 5)), max: 100, axisLabel: { color: '#a0a0a0' }, nameTextStyle: { color: '#a0a0a0' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        series: [
+          { name: '训练准确率', type: 'line', data: toPercent(eh.train_acc), symbol: 'none', lineStyle: { width: 2 }, itemStyle: { color: '#53a8ff' } },
+          { name: '测试准确率', type: 'line', data: toPercent(eh.test_acc), symbol: 'none', lineStyle: { width: 2, type: 'dashed' }, itemStyle: { color: '#00d4aa' } },
+        ],
+      })
+    }
+
+    const guidanceEl = trainChartRefs[prefix + '_guidance']
+    if (guidanceEl) {
+      const chart = initKdChart(guidanceEl)
+      const toPercent = arr => arr?.map(v => +(v * 100).toFixed(2)) || []
+      chart.setOption({
+        backgroundColor: 'transparent',
+        title: { text: '教师指导强度', left: 'center', top: 4, textStyle: { color: '#e0e0e0', fontSize: 14 } },
+        tooltip: {
+          trigger: 'axis',
+          formatter: params => {
+            let s = `Epoch ${params[0].axisValue}<br/>`
+            params.forEach(p => { s += `${p.marker} ${p.seriesName}: ${p.value}%<br/>` })
+            s += `<span style="color:#666;font-size:11px">α=${eh.alpha}, T=${eh.temperature}</span>`
+            return s
+          },
+        },
+        legend: { top: 28, textStyle: { color: '#a0a0a0', fontSize: 11 } },
+        grid: { left: 55, right: 20, top: 60, bottom: 35 },
+        xAxis: kdXAxis,
+        yAxis: { type: 'value', name: '%', min: 0, max: 100, axisLabel: { color: '#a0a0a0' }, nameTextStyle: { color: '#a0a0a0' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        series: [
+          {
+            name: 'KD 贡献占比',
+            type: 'line',
+            data: toPercent(eh.guidance_intensity),
+            symbol: 'circle', symbolSize: 4,
+            lineStyle: { width: 2.5 },
+            itemStyle: { color: '#ff9a3e' },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(255,154,62,0.3)' },
+              { offset: 1, color: 'rgba(255,154,62,0.02)' },
+            ]) },
+          },
+          {
+            name: 'α 权重基线',
+            type: 'line',
+            data: epochs.map(() => +(eh.alpha * 100).toFixed(1)),
+            symbol: 'none',
+            lineStyle: { width: 1.5, type: 'dotted', color: '#666' },
+            itemStyle: { color: '#666' },
+          },
+        ],
+      })
+    }
+
+    const confEl = trainChartRefs[prefix + '_conf']
+    if (confEl) {
+      const chart = initKdChart(confEl)
+      const toPercent = arr => arr?.map(v => +(v * 100).toFixed(2)) || []
+      chart.setOption({
+        backgroundColor: 'transparent',
+        title: { text: '学生模型置信度', left: 'center', top: 4, textStyle: { color: '#e0e0e0', fontSize: 14 } },
+        tooltip: { trigger: 'axis', valueFormatter: v => v + '%' },
+        legend: { top: 28, textStyle: { color: '#a0a0a0', fontSize: 11 } },
+        grid: { left: 55, right: 20, top: 60, bottom: 35 },
+        xAxis: kdXAxis,
+        yAxis: { type: 'value', name: '%', min: 0, max: 100, axisLabel: { color: '#a0a0a0' }, nameTextStyle: { color: '#a0a0a0' }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+        series: [
+          {
+            name: '平均置信度',
+            type: 'line',
+            data: toPercent(eh.mean_confidence),
+            symbol: 'circle', symbolSize: 4,
+            lineStyle: { width: 2.5 },
+            itemStyle: { color: '#00d4aa' },
+            areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(0,212,170,0.3)' },
+              { offset: 1, color: 'rgba(0,212,170,0.02)' },
+            ]) },
+          },
+        ],
+      })
+    }
+  }
+}
+
+watch(kdActiveTab, async () => {
+  await nextTick()
+  trainCharts.filter(c => c._kdChart).forEach(c => { c.dispose() })
+  trainCharts = trainCharts.filter(c => !c._kdChart)
+  const histories = visData.value?.histories || {}
+  for (const [stepKey, hist] of Object.entries(histories)) {
+    if (hist._type === 'distillation') {
+      renderDistillationCharts(stepKey, hist)
+    }
+  }
+})
+
 function handleResize() {
   barChart?.resize()
   pieChart?.resize()
@@ -483,5 +675,39 @@ onUnmounted(() => {
 }
 :deep(.el-tabs__header) {
   background: rgba(255,255,255,0.02);
+}
+.kd-explain {
+  margin-top: 16px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.kd-explain-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #c0c0c0;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kd-explain-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 20px;
+}
+.kd-explain-item {
+  font-size: 12.5px;
+  color: #909399;
+  line-height: 1.7;
+}
+.kd-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
 }
 </style>
