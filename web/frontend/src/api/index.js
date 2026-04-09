@@ -61,5 +61,6 @@ export const lightweightApi = {
   datasets: () => api.get('/lightweight/datasets'),
   history: () => api.get('/lightweight/history'),
   run: (data) => api.post('/lightweight/run', data),
+  stop: () => api.post('/lightweight/stop'),
   status: () => api.get('/lightweight/status'),
 }

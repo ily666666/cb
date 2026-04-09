@@ -40,6 +40,11 @@ async def get_status():
     return lightweight_service.get_status()
 
 
+@router.post("/stop")
+async def stop_compress():
+    return lightweight_service.stop_compress()
+
+
 @router.get("/history")
 async def get_compression_history():
     return {"results": lightweight_service.get_compression_history()}

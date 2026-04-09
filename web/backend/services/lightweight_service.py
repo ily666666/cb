@@ -189,6 +189,27 @@ def get_status() -> Dict:
     }
 
 
+def stop_compress() -> Dict:
+    """终止正在运行的压缩任务"""
+    if not _running_task["active"]:
+        return {"status": "ok", "message": "没有正在运行的任务"}
+
+    pid = _running_task["pid"]
+    if pid:
+        try:
+            import signal
+            os.kill(pid, signal.SIGTERM)
+            _running_task["active"] = False
+            return {"status": "ok", "message": f"已终止进程 {pid}"}
+        except ProcessLookupError:
+            _running_task["active"] = False
+            return {"status": "ok", "message": "进程已结束"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    _running_task["active"] = False
+    return {"status": "ok"}
+
+
 def run_compress(method_id: str, model_path: str, params: Dict) -> Dict:
     """启动压缩任务（后台子进程）"""
     if _running_task["active"]:

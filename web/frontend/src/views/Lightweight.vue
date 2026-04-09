@@ -109,12 +109,14 @@
     <!-- 执行压缩 -->
     <div class="card" v-if="currentMethod">
       <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
-        <el-button type="primary" size="large" :loading="compressing" :disabled="!selectedModel || !selectedData"
+        <el-button v-if="!compressing" type="primary" size="large" :disabled="!selectedModel || !selectedData"
           @click="startCompress">
-          <el-icon v-if="!compressing"><VideoPlay /></el-icon>
-          {{ compressing ? '压缩中...' : '开始压缩' }}
+          <el-icon><VideoPlay /></el-icon> 开始压缩
         </el-button>
-        <span v-if="!selectedModel || !selectedData" style="font-size: 13px; color: var(--text-secondary);">请先选择源模型和训练数据</span>
+        <el-button v-else type="danger" size="large" @click="stopCompress">
+          <el-icon><VideoPause /></el-icon> 终止压缩
+        </el-button>
+        <span v-if="!compressing && (!selectedModel || !selectedData)" style="font-size: 13px; color: var(--text-secondary);">请先选择源模型和训练数据</span>
         <span v-if="compressing" style="font-size: 13px; color: var(--text-secondary);">
           {{ taskStatus.method }} · 已运行 {{ Math.round(taskStatus.elapsed_s || 0) }}s
         </span>
@@ -198,6 +200,18 @@ async function startCompress() {
     terminalRef.value?.startPolling()
   } catch (e) {
     ElMessage.error('启动压缩失败: ' + (e.message || e))
+  }
+}
+
+async function stopCompress() {
+  try {
+    await lightweightApi.stop()
+    compressing.value = false
+    compressResult.value = ''
+    terminalRef.value?.stopPolling()
+    ElMessage.warning('压缩任务已终止')
+  } catch (e) {
+    ElMessage.error('终止失败: ' + (e.message || e))
   }
 }
 
