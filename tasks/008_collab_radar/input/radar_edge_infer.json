@@ -1,6 +1,6 @@
 {
     "_注释_model_path":   "边侧模型权重文件路径(.pth)",
-    "model_path": "edge_pth/radar/edge_1_model.pth",
+    "model_path": "E:/1Experiments/hfut_pth/edge/radar/federated/edge_1_model.pth",
 
     "_注释_model_type":   "模型类型名",
     "model_type": "real_resnet20_radar_h",
@@ -12,7 +12,7 @@
     "device": "cuda:0",
 
     "_注释_confidence_threshold": "置信度阈值：低于此值的样本转发云侧",
-    "confidence_threshold": 0.7,
+    "confidence_threshold": 0.3,
 
     "_注释_batch_size":   "推理批次大小",
     "batch_size": 32,

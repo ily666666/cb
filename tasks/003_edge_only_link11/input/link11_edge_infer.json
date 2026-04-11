@@ -1,6 +1,6 @@
 {
-    "model_path": "edge_pth/link11/edge_1_federated_model.pth",
-    "model_type": "real_resnet20_link11_h",
+    "model_path": "E:/1Experiments/hfut_pth/edge/link11/local/edge_1_model.pth",
+    "model_type": "real_resnet9_link11",
     "num_classes": 7,
     "device": "cuda:0",
     "batch_size": 32,

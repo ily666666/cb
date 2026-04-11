@@ -1,9 +1,9 @@
 {
     "_注释_model_path": "云侧模型权重文件路径(.pth)",
-    "model_path": "cloud_pth/ratr/teacher_model.pth",
+    "model_path": "E:/1Experiments/hfut_pth/cloud/ratr/teacher_model_L2048.pth",
 
     "_注释_model_type": "模型类型名",
-    "model_type": "real_resnet101_ratr",
+    "model_type": "real_resnet101_ratr_2048",
 
     "_注释_num_classes": "分类数",
     "num_classes": 3,

@@ -1,9 +1,9 @@
 {
     "_注释_model_path":   "边侧模型权重文件路径(.pth)",
-    "model_path": "edge_pth/link11/edge_2_model.pth",
+    "model_path": "E:/1Experiments/hfut_pth/edge/link11/federated/edge_1_model.pth",
 
     "_注释_model_type":   "模型类型名，必须和fed/project.py中的create_model_by_type对应",
-    "model_type": "real_resnet20_link11_h",
+    "model_type": "real_resnet9_link11",
 
     "_注释_num_classes":  "分类数，link11=7",
     "num_classes": 7,
@@ -12,7 +12,7 @@
     "device": "cuda:0",
 
     "_注释_confidence_threshold": "置信度阈值：低于此值的样本判为'低置信度'发给云侧。0=全留边侧，1.0=全发云侧，0.7=常用值",
-    "confidence_threshold": 0.5,
+    "confidence_threshold": 0.3,
 
     "_注释_batch_size":   "推理批次大小，越大越快但越占显存",
     "batch_size": 32,

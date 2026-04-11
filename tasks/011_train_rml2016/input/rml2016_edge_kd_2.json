@@ -14,7 +14,7 @@
     "edge_id": 2,
 
     "_注释_student_model_type": "学生模型类型（边侧轻量模型）",
-    "student_model_type": "real_resnet20_rml2016_h",
+    "student_model_type": "real_resnet11_rml2016",
 
     "_注释_num_classes": "分类数",
     "num_classes": 6,
@@ -26,7 +26,7 @@
     "teacher_model_type": "complex_resnet50_rml2016_with_attention",
 
     "_注释_epochs": "蒸馏训练轮数",
-    "epochs": 30,
+    "epochs": 10,
 
     "_注释_kd_alpha": "软标签权重(0~1)",
     "kd_alpha": 0.7,
@@ -35,11 +35,11 @@
     "temperature": 4.0,
 
     "_注释_batch_size": "训练批次大小",
-    "batch_size": 2048,
+    "batch_size": 64,
 
     "_注释_learning_rate": "学习率",
     "learning_rate": 0.001,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7"
+    "device": "cuda:0"
 }

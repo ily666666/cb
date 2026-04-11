@@ -8,13 +8,13 @@
         "file_name": "teacher_model.pth"
     },
 
-    "data_path": "dataset/splits/link11/edge_1_data.pkl",
+    "data_path": "E:/3dataset/link11/edge_1_data.pkl",
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 1,
 
     "_注释_student_model_type": "学生模型类型（边侧轻量模型）",
-    "student_model_type": "real_resnet20_link11_h",
+    "student_model_type": "real_resnet9_link11",
 
     "_注释_num_classes": "分类数",
     "num_classes": 7,
@@ -26,7 +26,7 @@
     "teacher_model_type": "complex_resnet50_link11_with_attention",
 
     "_注释_epochs": "蒸馏训练轮数",
-    "epochs": 30,
+    "epochs": 10,
 
     "_注释_kd_alpha": "软标签权重(0~1)",
     "kd_alpha": 0.7,

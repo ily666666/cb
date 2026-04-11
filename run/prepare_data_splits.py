@@ -30,22 +30,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 数据集配置（绑定数据集类型、路径和类别数）
 DATASET_CONFIG = {
     'link11': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/link11_merged_data.pkl',
+        'data_path': 'E:/BaiduNet_Download/dataGen/gen_link11/link11_merged_data.pkl',
         'num_classes': 7,
         'description': 'Link11 - 7类雷达发射机识别'
     },
     'rml2016': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/rml2016_10.pkl',
+        'data_path': 'E:/BaiduNet_Download/dataGen/rml2016_2700.pkl',
         'num_classes': 6,
         'description': 'RML2016 - 6类调制识别'
     },
     'radar': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/radar_10.mat',
+        'data_path': 'E:/BaiduNet_Download/dataGen/radar_1750.mat',
         'num_classes': 7,
         'description': 'Radar - 7类雷达个体识别'
     },
     'ratr': {
-        'data_path': 'E:/BaiduNet_Download/dataGen/ratr.mat',
+        'data_path': 'E:/BaiduNet_Download/dataGen/small_ratr_100000_repeated',
         'num_classes': 3,
         'description': 'RATR - 3类雷达目标识别'
     }
@@ -344,13 +344,13 @@ def main():
     parser.add_argument('--partition_method', type=str, default='dirichlet', 
                         choices=['dirichlet'], 
                         help='数据划分方法')
-    parser.add_argument('--dirichlet_alpha', type=float, default=0.3, 
+    parser.add_argument('--dirichlet_alpha', type=float, default=8, 
                         help='Dirichlet分布参数（越小各边数据差异越大，0.3=强异构）')
     parser.add_argument('--cloud_ratio', type=float, default=0.8, 
                         help='云侧数据比例（默认0.8，云侧80%%用于预训练+蒸馏，边侧20%%用于联邦学习）')
     parser.add_argument('--seed', type=int, default=42, 
                         help='随机种子')
-    parser.add_argument('--output_dir', type=str, default='dataset/splits/small', 
+    parser.add_argument('--output_dir', type=str, default='dataset/splits/ratr_2048', 
                         help='输出目录')
     parser.add_argument('--radar_length', type=int, default=500, 
                         choices=[500, 1000],

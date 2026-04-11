@@ -21,7 +21,7 @@
     "num_classes": 3,
 
     "_注释_num_rounds": "联邦学习通信轮数",
-    "num_rounds": 10,
+    "num_rounds":20,
 
     "_注释_local_epochs": "每轮本地训练轮数",
     "local_epochs": 1,
@@ -39,5 +39,5 @@
     "sync_timeout": 1800,
 
     "_注释_sync_dir": "联邦学习同步目录（边侧从该目录读取 global_model_round_*.pth，写回 edge_model_round_*.pth）",
-    "sync_dir": "./tasks/016_train_ratr/output/federated_train"
+    "sync_dir": "./tasks/016_train_ratr/output/ratr_federated_train"
 }

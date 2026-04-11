@@ -1,6 +1,6 @@
 {
     "_注释_data_path":    "数据路径，可以是单个.pkl文件 或 包含多个batch_xxxx.pkl的目录",
-    "data_path": "E:/BaiduNet_Download/dataGen/link11_10000.pkl",
+    "data_path": "E:/BaiduNet_Download/dataGen/gen_link11/link11_100000_1.pkl",
 
     "_注释_dataset_type": "数据集类型，决定标签映射：link11(7类) / rml2016(6类) / radar(7类)",
     "dataset_type": "link11",

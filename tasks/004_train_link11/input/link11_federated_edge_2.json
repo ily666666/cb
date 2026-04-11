@@ -3,9 +3,9 @@
     "_注释": "联邦学习 - 边侧2本地训练",
 
     "_注释_input_data": "联邦学习同步目录，边侧每轮从此目录轮询 global_model_round_*.pth",
-    "sync_dir": "tasks/004_train_link11/output/federated_train",
+    "sync_dir": "tasks/004_train_link11/output/link11_federated_train",
     
-    "data_path": "dataset/splits/link11/edge_2_data.pkl",
+    "data_path": "dataset/splits/new/link11/edge_2_data.pkl",
 
     "_注释_edge_id": "当前边侧节点ID",
     "edge_id": 2,
@@ -14,13 +14,13 @@
     "dataset_type": "link11",
 
     "_注释_edge_model_type": "边侧模型类型",
-    "edge_model_type": "real_resnet20_link11_h",
+    "edge_model_type": "real_resnet9_link11",
 
     "_注释_num_classes": "分类数",
     "num_classes": 7,
 
     "_注释_num_rounds": "联邦学习通信轮数",
-    "num_rounds": 30,
+    "num_rounds": 20,
 
     "_注释_local_epochs": "每轮本地训练轮数",
     "local_epochs": 1,

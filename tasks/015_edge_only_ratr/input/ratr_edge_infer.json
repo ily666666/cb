@@ -1,6 +1,6 @@
 {
     "_注释_model_path": "边侧模型权重文件路径(.pth)",
-    "model_path": "edge_pth/ratr/edge_1_model.pth",
+    "model_path": "E:/1Experiments/hfut_pth/edge/ratr/local/edge_1_model.pth",
 
     "_注释_model_type": "模型类型名",
     "model_type": "real_resnet7_ratr_cp",

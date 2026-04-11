@@ -1,9 +1,9 @@
 {
     "_注释_model_path":   "边侧模型权重文件路径(.pth)",
-    "model_path": "edge_pth/rml2016/edge_1_model.pth",
+    "model_path": "E:/1Experiments/hfut_pth/edge/rml2016/federated/edge_1_model.pth",
 
     "_注释_model_type":   "模型类型名",
-    "model_type": "real_resnet20_rml2016_h",
+    "model_type": "real_resnet11_rml2016",
 
     "_注释_num_classes":  "分类数，rml2016=6",
     "num_classes": 6,
@@ -12,7 +12,7 @@
     "device": "cuda:0",
 
     "_注释_confidence_threshold": "置信度阈值：低于此值的样本转发云侧",
-    "confidence_threshold": 0.7,
+    "confidence_threshold": 0.5,
 
     "_注释_batch_size":   "推理批次大小",
     "batch_size": 32,

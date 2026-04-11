@@ -5,7 +5,7 @@
     "_注释_input_data": "上一步（edge_kd）的输出，作为本步骤的输入",
     "input_data": {
         "parent_folder": "rml2016_edge_kd_2",
-        "file_name": "student_edge2.pth"
+        "file_name": "student_edge_2.pth"
     },
 
     "_注释_num_edges": "参与联邦学习的边侧节点数量",
@@ -15,7 +15,7 @@
     "dataset_type": "rml2016",
 
     "_注释_edge_model_type": "边侧模型类型（全局模型架构）",
-    "edge_model_type": "real_resnet20_rml2016_h",
+    "edge_model_type": "real_resnet11_rml2016",
 
     "_注释_num_classes": "分类数",
     "num_classes": 6,
@@ -24,7 +24,7 @@
     "num_rounds": 30,
 
     "_注释_device": "计算设备",
-    "device": "cuda:7",
+    "device": "cuda:0",
 
     "_注释_sync_timeout": "等待边侧模型的超时时间（秒）",
     "sync_timeout": 1800

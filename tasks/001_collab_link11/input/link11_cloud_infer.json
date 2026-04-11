@@ -1,6 +1,6 @@
 {
     "_注释_model_path":   "云侧模型权重文件路径(.pth)",
-    "model_path": "cloud_pth/link11/teacher_model.pth",
+    "model_path": "E:/1Experiments/hfut_pth/cloud/link11/teacher_model.pth",
 
     "_注释_model_type":   "模型类型名，带with_attention的是注意力增强版",
     "model_type": "complex_resnet50_link11_with_attention",

@@ -15,13 +15,13 @@
     "dataset_type": "link11",
 
     "_注释_edge_model_type": "边侧模型类型（全局模型架构）",
-    "edge_model_type": "real_resnet20_link11_h",
+    "edge_model_type": "real_resnet9_link11",
 
     "_注释_num_classes": "分类数",
     "num_classes": 7,
 
     "_注释_num_rounds": "联邦学习通信轮数",
-    "num_rounds": 30,
+    "num_rounds": 20,
 
     "_注释_device": "计算设备",
     "device": "cuda:0",

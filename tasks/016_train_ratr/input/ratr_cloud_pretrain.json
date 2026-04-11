@@ -2,19 +2,19 @@
     "_部署模式": "单机/多机共用 | 阶段1 | 云侧机器运行",
 
     "_注释_data_path": "数据切分脚本输出的云侧训练数据",
-    "data_path": "dataset/splits/ratr/cloud_data.pkl",
+    "data_path": "dataset/splits/ratr_2048/ratr/cloud_data.pkl",
 
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "ratr",
 
     "_注释_model_type": "教师模型类型（云侧大模型）",
-    "model_type": "real_resnet101_ratr",
+    "model_type": "real_resnet101_ratr_2048",
 
     "_注释_num_classes": "分类数",
     "num_classes": 3,
 
     "_注释_epochs": "训练轮数",
-    "epochs": 2,
+    "epochs": 10,
 
     "_注释_batch_size": "训练批次大小",
     "batch_size": 64,
