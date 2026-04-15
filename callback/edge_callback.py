@@ -183,6 +183,10 @@ def edge_infer_callback(task_id, **kwargs):
         print(f"[错误] 缺少必需参数: {missing_str}")
         return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
 
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_edge_infer
+        return simulate_edge_infer(config, task_id, step_prefix="")
+
     model_path = config['model_path']
     model_type = config['model_type']
     num_classes = config['num_classes']
@@ -424,6 +428,10 @@ def link11_edge_infer_callback(task_id, **kwargs):
         missing_str = ', '.join(result['missing'])
         print(f"[错误] 缺少必需参数: {missing_str}")
         return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
+
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_edge_infer
+        return simulate_edge_infer(config, task_id, step_prefix="link11_")
 
     model_path = config['model_path']
     model_type = config['model_type']
@@ -667,6 +675,10 @@ def rml2016_edge_infer_callback(task_id, **kwargs):
         print(f"[错误] 缺少必需参数: {missing_str}")
         return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
 
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_edge_infer
+        return simulate_edge_infer(config, task_id, step_prefix="rml2016_")
+
     model_path = config['model_path']
     model_type = config['model_type']
     num_classes = config['num_classes']
@@ -909,6 +921,10 @@ def radar_edge_infer_callback(task_id, **kwargs):
         print(f"[错误] 缺少必需参数: {missing_str}")
         return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
 
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_edge_infer
+        return simulate_edge_infer(config, task_id, step_prefix="radar_")
+
     model_path = config['model_path']
     model_type = config['model_type']
     num_classes = config['num_classes']
@@ -1150,6 +1166,10 @@ def ratr_edge_infer_callback(task_id, **kwargs):
         missing_str = ', '.join(result['missing'])
         print(f"[错误] 缺少必需参数: {missing_str}")
         return {'status': 'error', 'message': f"缺少参数: {missing_str}"}
+
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_edge_infer
+        return simulate_edge_infer(config, task_id, step_prefix="ratr_")
 
     model_path = config['model_path']
     model_type = config['model_type']
