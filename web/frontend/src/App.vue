@@ -38,5 +38,7 @@ const navItems = [
   { path: '/inference', label: '模型推理计算', icon: 'Cpu' },
   { path: '/models', label: '模型算法管理', icon: 'Setting' },
   { path: '/lightweight', label: '模型轻量化', icon: 'ScaleToOriginal' },
+  { path: '/distillation', label: '知识蒸馏', icon: 'MagicStick' },
+  { path: '/prune-pow2', label: '剪枝量化(2的幂次)', icon: 'Opportunity' },
 ]
 </script>

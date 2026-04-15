@@ -64,3 +64,22 @@ export const lightweightApi = {
   stop: () => api.post('/lightweight/stop'),
   status: () => api.get('/lightweight/status'),
 }
+
+export const distillationApi = {
+  tasks: () => api.get('/distillation/tasks'),
+  start: (taskId) => api.post(`/distillation/${taskId}/start`),
+  status: (taskId) => api.get(`/distillation/${taskId}/status`),
+  stop: (taskId) => api.post(`/distillation/${taskId}/stop`),
+  history: (taskId) => api.get(`/distillation/${taskId}/history`),
+  models: (taskId) => api.get(`/distillation/${taskId}/models`),
+}
+
+export const prunePow2Api = {
+  method: () => api.get('/prune-pow2/method'),
+  models: () => api.get('/prune-pow2/models'),
+  datasets: () => api.get('/prune-pow2/datasets'),
+  history: () => api.get('/prune-pow2/history'),
+  run: (data) => api.post('/prune-pow2/run', data),
+  stop: () => api.post('/prune-pow2/stop'),
+  status: () => api.get('/prune-pow2/status'),
+}

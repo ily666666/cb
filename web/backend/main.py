@@ -14,7 +14,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from routers import tasks, data, inference, models, lightweight
+from routers import tasks, data, inference, models, lightweight, distillation, prune_pow2
 
 app = FastAPI(
     title="云边端协同计算框架",
@@ -35,6 +35,8 @@ app.include_router(data.router, prefix="/api/data", tags=["数据接入"])
 app.include_router(inference.router, prefix="/api/inference", tags=["模型推理计算"])
 app.include_router(models.router, prefix="/api/models", tags=["模型算法管理"])
 app.include_router(lightweight.router, prefix="/api/lightweight", tags=["模型轻量化"])
+app.include_router(distillation.router, prefix="/api/distillation", tags=["知识蒸馏"])
+app.include_router(prune_pow2.router, prefix="/api/prune-pow2", tags=["剪枝量化(2的幂次)"])
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
 if os.path.isdir(FRONTEND_DIST):

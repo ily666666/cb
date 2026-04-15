@@ -7,6 +7,8 @@ const routes = [
   { path: '/inference', name: 'Inference', component: () => import('../views/Inference.vue'), meta: { title: '模型推理计算' } },
   { path: '/models', name: 'Models', component: () => import('../views/Models.vue'), meta: { title: '模型算法管理' } },
   { path: '/lightweight', name: 'Lightweight', component: () => import('../views/Lightweight.vue'), meta: { title: '模型轻量化' } },
+  { path: '/distillation', name: 'Distillation', component: () => import('../views/Distillation.vue'), meta: { title: '知识蒸馏' } },
+  { path: '/prune-pow2', name: 'PrunePow2', component: () => import('../views/PrunePow2.vue'), meta: { title: '剪枝量化(2的幂次)' } },
 ]
 
 const router = createRouter({
