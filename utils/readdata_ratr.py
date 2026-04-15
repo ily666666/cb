@@ -1,11 +1,11 @@
 """
 RATR Dataset Reader
 Dataset: proj_test_dataset_pkl - 3 radar target classes (E2D / P3C / P8A)
-Signal format: 1D sequence with 1024 samples (per sample)
+Signal format: 1D sequence with 1024 or 2048 samples (per sample)
 
 Each .pkl file structure:
   {
-    'data': np.ndarray shape (1024, N),
+    'data': np.ndarray shape (length, N),  # length can be 1024 or 2048
     'var': str,
     'source': str
   }
@@ -100,7 +100,10 @@ class RATRDataset(Dataset):
         return files
 
     def _load_file_data(self, file_path: str):
-        """Load one pkl and return its data array as float32 np.ndarray with shape (1024, N)."""
+        """Load one pkl and return its data array as float32 np.ndarray with shape (length, N).
+        
+        Supports both 1024 and 2048 length signals.
+        """
         if file_path in _RATR_FILE_CACHE:
             return _RATR_FILE_CACHE[file_path]
 
@@ -114,8 +117,13 @@ class RATRDataset(Dataset):
         if not isinstance(data, np.ndarray):
             data = np.asarray(data)
 
-        if data.ndim != 2 or data.shape[0] != 1024:
-            raise ValueError(f"Unexpected data shape in {file_path}: {data.shape} (expected (1024, N))")
+        # Support both 1024 and 2048 length signals
+        if data.ndim != 2:
+            raise ValueError(f"Unexpected data dimensions in {file_path}: {data.shape} (expected 2D array)")
+        
+        signal_length = data.shape[0]
+        if signal_length not in [1024, 2048]:
+            raise ValueError(f"Unexpected signal length in {file_path}: {signal_length} (expected 1024 or 2048)")
 
         if data.dtype != np.float32:
             data = data.astype(np.float32, copy=False)
@@ -137,14 +145,24 @@ class RATRDataset(Dataset):
 
         offsets = [0]
         total = 0
-
+        
+        # Detect signal length from first file
+        first_data = self._load_file_data(self.file_paths[0])
+        self.signal_length = first_data.shape[0]
+        
         print(f"正在初始化 RATR 数据集索引: {self.data_dir}")
+        print(f"检测到信号长度: {self.signal_length}")
 
         for fp, stem in zip(self.file_paths, self.file_stems):
             cls_name = _infer_class_from_filename(stem)
             label = self.class_to_label[cls_name]
 
             data = self._load_file_data(fp)
+            
+            # Verify all files have the same signal length
+            if data.shape[0] != self.signal_length:
+                raise ValueError(f"Inconsistent signal length in {fp}: {data.shape[0]} (expected {self.signal_length})")
+            
             n = int(data.shape[1])
 
             file_counts.append(n)
@@ -199,6 +217,7 @@ class RATRDataset(Dataset):
 
         elapsed = time.time() - t0
         print(f"✅ 索引初始化完成 (耗时: {elapsed:.2f}秒)")
+        print(f"   信号长度: {self.signal_length}")
         print(f"   类别: {self.class_names} (num_classes={self.num_classes})")
         print(f"   总样本数: {self.total_samples}")
         print(f"   训练集: {len(self.train_indices)}")
@@ -274,92 +293,19 @@ def build_ratr_dataloader(
 
 
 def load_ratr_numpy(data_path, split="test", seed=42, max_samples=None, **dataset_kwargs):
-    if os.path.isfile(data_path) and data_path.lower().endswith('.mat'):
-        try:
-            import scipy.io
-        except Exception as e:
-            raise ImportError(
-                "scipy is required to load .mat files for RATR. Install it via pip/conda.") from e
-
-        mat = scipy.io.loadmat(data_path)
-        if 'tarHRRP_inScene_db' not in mat or 'tarLabelIsInsight_inScene' not in mat:
-            keys = [k for k in mat.keys() if not k.startswith('__')]
-            raise KeyError(
-                f"Unexpected RATR .mat keys: {keys}. Required: tarHRRP_inScene_db, tarLabelIsInsight_inScene")
-
-        X_raw = mat['tarHRRP_inScene_db']
-        y_raw = mat['tarLabelIsInsight_inScene']
-
-        if not isinstance(X_raw, np.ndarray):
-            X_raw = np.asarray(X_raw)
-        if not isinstance(y_raw, np.ndarray):
-            y_raw = np.asarray(y_raw)
-
-        if X_raw.ndim != 2 or X_raw.shape[0] != 1024:
-            raise ValueError(
-                f"Unexpected tarHRRP_inScene_db shape: {X_raw.shape} (expected (1024, N))")
-
-        y_flat = y_raw.reshape(-1).astype(np.int64, copy=False)
-        if y_flat.size != X_raw.shape[1]:
-            raise ValueError(
-                f"Label size mismatch: X has N={X_raw.shape[1]} but y has {y_flat.size}")
-
-        y_min = int(y_flat.min())
-        y_max = int(y_flat.max())
-        if y_min == 1 and y_max == 3:
-            y_flat = y_flat - 1
-        elif y_min == 0 and y_max in (1, 2):
-            pass
-        else:
-            raise ValueError(
-                f"Unexpected label range for RATR .mat: min={y_min}, max={y_max} (expected 0..2 or 1..3)")
-
-        # (1024, N) -> (N, 1, 1024)
-        X = X_raw.T.astype(np.float32, copy=False)[:, None, :]
-        y = y_flat
-
-        # Deterministic split: test_size=0.2, val_size=0.1 from remaining
-        n = X.shape[0]
-        rng = np.random.RandomState(seed)
-        perm = rng.permutation(n)
-
-        test_size = 0.2
-        val_size = 0.1
-
-        n_test = int(n * test_size)
-        n_test = max(1, min(n - 2, n_test))
-
-        rem = n - n_test
-        n_val = int(rem * val_size)
-        n_val = max(1, min(rem - 1, n_val))
-
-        test_idx = perm[:n_test]
-        val_idx = perm[n_test:n_test + n_val]
-        train_idx = perm[n_test + n_val:]
-
-        split = (split or 'test').lower()
-        if split == 'train':
-            X, y = X[train_idx], y[train_idx]
-        elif split in ('val', 'valid', 'validation'):
-            X, y = X[val_idx], y[val_idx]
-        elif split == 'test':
-            X, y = X[test_idx], y[test_idx]
-        else:
-            raise ValueError(f"Unsupported split: {split} (expected 'train'|'val'|'test')")
-
-        if max_samples is not None:
-            X = X[: int(max_samples)]
-            y = y[: int(max_samples)]
-
-        return X, y
-
+    """Load RATR data as numpy arrays.
+    
+    Supports both 1024 and 2048 length signals.
+    """
     if os.path.isdir(data_path):
         ds = RATRDataset(data_dir=data_path, split=split, seed=seed, **dataset_kwargs)
         n = len(ds)
         if max_samples is not None:
             n = min(n, int(max_samples))
 
-        X = np.empty((n, 1, 1024), dtype=np.float32)
+        # Use the detected signal length from the dataset
+        signal_length = ds.signal_length
+        X = np.empty((n, 1, signal_length), dtype=np.float32)
         y = np.empty((n,), dtype=np.int64)
         for i in range(n):
             xi, yi = ds[i]
@@ -378,8 +324,15 @@ def load_ratr_numpy(data_path, split="test", seed=42, max_samples=None, **datase
     data = obj["data"]
     if not isinstance(data, np.ndarray):
         data = np.asarray(data)
-    if data.ndim != 2 or data.shape[0] != 1024:
-        raise ValueError(f"Unexpected data shape in {data_path}: {data.shape} (expected (1024, N))")
+    
+    # Support both 1024 and 2048 length signals
+    if data.ndim != 2:
+        raise ValueError(f"Unexpected data dimensions in {data_path}: {data.shape} (expected 2D array)")
+    
+    signal_length = data.shape[0]
+    if signal_length not in [1024, 2048]:
+        raise ValueError(f"Unexpected signal length in {data_path}: {signal_length} (expected 1024 or 2048)")
+    
     if data.dtype != np.float32:
         data = data.astype(np.float32, copy=False)
 
