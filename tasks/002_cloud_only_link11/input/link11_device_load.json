@@ -1,7 +1,7 @@
 {
-    "data_path": "E:/BaiduNet_Download/dataGen/link11_50000.pkl",
+    "data_path": "/home/user/coderepository/cb/dataset/link11",
     "dataset_type": "link11",
     "batch_size": 32,
-    "max_files": null,
+    "max_files": 10,
     "num_batches": null
 }
