@@ -1580,6 +1580,10 @@ def device_load_callback(task_id, **kwargs):
     param_list = ['data_path', 'dataset_type', 'batch_size']
     result, config = check_parameters(config_path, param_list)
 
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_device_load
+        return simulate_device_load(config, task_id)
+
     if 'error' in result:
         print(f"[错误] {result['error']}")
         return {'status': 'error', 'message': result['error']}
@@ -1787,13 +1791,17 @@ def device_load_callback(task_id, **kwargs):
 @register_task
 def link11_device_load_callback(task_id, **kwargs):
     """link11 端侧数据加载回调"""
-    print(f"\n{'=' * 60}")
-    print(f"[端侧] 开始执行数据加载任务")
-    print(f"{'=' * 60}")
-
     config_path = f"{TASKS_ROOT}/{task_id}/input/link11_device_load.json"
     param_list = ['data_path', 'dataset_type', 'batch_size']
     result, config = check_parameters(config_path, param_list)
+
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_device_load
+        return simulate_device_load(config, task_id, step_prefix="link11_")
+
+    print(f"\n{'=' * 60}")
+    print(f"[端侧] 开始执行数据加载任务")
+    print(f"{'=' * 60}")
 
     if 'error' in result:
         print(f"[错误] {result['error']}")
@@ -2002,13 +2010,17 @@ def link11_device_load_callback(task_id, **kwargs):
 @register_task
 def rml2016_device_load_callback(task_id, **kwargs):
     """rml2016 端侧数据加载回调"""
-    print(f"\n{'=' * 60}")
-    print(f"[端侧] 开始执行数据加载任务")
-    print(f"{'=' * 60}")
-
     config_path = f"{TASKS_ROOT}/{task_id}/input/rml2016_device_load.json"
     param_list = ['data_path', 'dataset_type', 'batch_size']
     result, config = check_parameters(config_path, param_list)
+
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_device_load
+        return simulate_device_load(config, task_id, step_prefix="rml2016_")
+
+    print(f"\n{'=' * 60}")
+    print(f"[端侧] 开始执行数据加载任务")
+    print(f"{'=' * 60}")
 
     if 'error' in result:
         print(f"[错误] {result['error']}")
@@ -2216,13 +2228,17 @@ def rml2016_device_load_callback(task_id, **kwargs):
 @register_task
 def radar_device_load_callback(task_id, **kwargs):
     """radar 端侧数据加载回调"""
-    print(f"\n{'=' * 60}")
-    print(f"[端侧] 开始执行数据加载任务")
-    print(f"{'=' * 60}")
-
     config_path = f"{TASKS_ROOT}/{task_id}/input/radar_device_load.json"
     param_list = ['data_path', 'dataset_type', 'batch_size']
     result, config = check_parameters(config_path, param_list)
+
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_device_load
+        return simulate_device_load(config, task_id, step_prefix="radar_")
+
+    print(f"\n{'=' * 60}")
+    print(f"[端侧] 开始执行数据加载任务")
+    print(f"{'=' * 60}")
 
     if 'error' in result:
         print(f"[错误] {result['error']}")
@@ -2430,13 +2446,17 @@ def radar_device_load_callback(task_id, **kwargs):
 @register_task
 def ratr_device_load_callback(task_id, **kwargs):
     """ratr 端侧数据加载回调"""
-    print(f"\n{'=' * 60}")
-    print(f"[端侧] 开始执行数据加载任务")
-    print(f"{'=' * 60}")
-
     config_path = f"{TASKS_ROOT}/{task_id}/input/ratr_device_load.json"
     param_list = ['data_path', 'dataset_type', 'batch_size']
     result, config = check_parameters(config_path, param_list)
+
+    if config.get('display_config'):
+        from callback.display_simulate import simulate_device_load
+        return simulate_device_load(config, task_id, step_prefix="ratr_")
+
+    print(f"\n{'=' * 60}")
+    print(f"[端侧] 开始执行数据加载任务")
+    print(f"{'=' * 60}")
 
     if 'error' in result:
         print(f"[错误] {result['error']}")

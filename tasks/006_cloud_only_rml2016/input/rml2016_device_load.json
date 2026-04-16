@@ -1,7 +1,43 @@
 {
+    "_注释_data_path":    "数据路径，可以是单个.pkl文件 或 包含多个.pkl的目录",
     "data_path": "E:/BaiduNet_Download/dataGen/rml2016_2700.pkl",
+
+    "_注释_dataset_type": "数据集类型",
     "dataset_type": "rml2016",
+
+    "_注释_batch_size":   "推理时每批送入模型的样本数",
     "batch_size": 32,
+
+    "_注释_max_files":    "目录模式下最多加载几个文件，null=全部",
     "max_files": null,
-    "num_batches": null
+
+    "_注释_num_batches":  "限制总样本数=num_batches×batch_size，null=不限制",
+    "num_batches": null,
+
+    "_注释_display_config": "模拟显示配置，存在时跳过真实数据加载",
+    "display_config": {
+        "_注释_simulate_realtime": "true=用time.sleep模拟真实加载耗时，false=立即打印",
+        "simulate_realtime": false,
+
+        "_注释_total_samples": "模拟显示的总样本数",
+        "total_samples": 2700,
+
+        "_注释_data_load_time": "模拟显示的数据加载耗时(秒)",
+        "data_load_time": 1.85,
+
+        "_注释_preprocess_time": "模拟显示的数据预处理耗时(秒)",
+        "preprocess_time": 0.01,
+
+        "_注释_save_time": "模拟显示的数据保存耗时(秒)",
+        "save_time": 0.50,
+
+        "_注释_data_shape": "模拟显示的数据形状字符串",
+        "data_shape": "(2700, 2, 128)",
+
+        "_注释_data_dtype": "模拟显示的数据类型",
+        "data_dtype": "float32",
+
+        "_注释_num_files": "模拟显示的文件数，null=单文件模式",
+        "num_files": null
+    }
 }

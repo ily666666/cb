@@ -34,6 +34,20 @@ from config_refactor import TASKS_ROOT
 from utils_refactor import save_timing
 
 
+def _get_data_size_mb(data_path):
+    """获取数据文件/目录的总大小(MB)"""
+    if not os.path.exists(data_path):
+        return 0
+    if os.path.isfile(data_path):
+        return os.path.getsize(data_path) / (1024 * 1024)
+    total = 0
+    for f in os.listdir(data_path):
+        fp = os.path.join(data_path, f)
+        if os.path.isfile(fp):
+            total += os.path.getsize(fp)
+    return total / (1024 * 1024)
+
+
 def _maybe_sleep(seconds, realtime):
     """只在 realtime=True 时才真正 sleep"""
     if realtime and seconds > 0:
@@ -420,4 +434,81 @@ def simulate_cloud_infer(config, task_id, step_prefix=""):
         'cloud_accuracy': cloud_accuracy / 100.0,
         'agree_ratio': float(agree_ratio),
         'num_corrected': int(corrected_count),
+    }
+
+
+# ================================================================
+# 端侧数据加载模拟
+# ================================================================
+def simulate_device_load(config, task_id, step_prefix=""):
+    """模拟端侧数据加载日志输出，只读取文件大小不真正加载数据"""
+    dc = config['display_config']
+    realtime = dc.get('simulate_realtime', False)
+
+    data_path = config.get('data_path', '')
+    dataset_type = config.get('dataset_type', 'unknown')
+    batch_size = config.get('batch_size', 128)
+
+    total_samples = dc.get('total_samples', 100000)
+    data_load_time = dc.get('data_load_time', 5.0)
+    preprocess_time = dc.get('preprocess_time', 0.01)
+    save_time = dc.get('save_time', 2.0)
+    data_shape = dc.get('data_shape', f"({total_samples}, 2, 128)")
+    data_dtype = dc.get('data_dtype', 'float32')
+    num_files = dc.get('num_files', None)
+
+    output_step = f"{step_prefix}device_load"
+
+    print(f"\n{'='*60}")
+    print(f"[端侧] 开始执行数据加载任务")
+    print(f"{'='*60}")
+    print(f"[配置] 数据路径: {data_path}")
+    print(f"[配置] 数据集类型: {dataset_type}")
+    print(f"[配置] 批次大小: {batch_size}")
+
+    data_size_mb = _get_data_size_mb(data_path)
+    if data_size_mb > 0:
+        print(f"[信息] 数据文件大小: {data_size_mb:.1f} MB")
+
+    if num_files is not None and num_files > 1:
+        print(f"[加载] 发现 {num_files} 个文件（目录模式）")
+        _maybe_sleep(data_load_time, realtime)
+        print(f"[加载] 已加载 {num_files}/{num_files} 个文件")
+    else:
+        print(f"[加载] 正在加载数据文件...")
+        _maybe_sleep(data_load_time, realtime)
+
+    print(f"[加载] 成功加载 {total_samples} 个样本")
+    print(f"[加载] 数据形状: X={data_shape}, dtype={data_dtype}")
+    print(f"[计时] 数据加载耗时: {data_load_time:.2f}s")
+
+    _maybe_sleep(preprocess_time, realtime)
+    print(f"[计时] 数据预处理耗时: {preprocess_time:.2f}s")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, 'data_batch.pkl')
+
+    _maybe_sleep(save_time, realtime)
+    print(f"[保存] 数据已保存到: {output_path}")
+    print(f"[计时] 数据保存耗时: {save_time:.2f}s")
+
+    save_timing(output_dir, {
+        'data_load_time': data_load_time,
+        'preprocess_time': preprocess_time,
+        'data_save_time': save_time,
+    })
+
+    num_batches = (total_samples + batch_size - 1) // batch_size
+
+    print(f"[完成] 端侧数据加载完成")
+    print(f"[统计] 样本数: {total_samples}")
+    print(f"[统计] 批次数: {num_batches}")
+
+    return {
+        'status': 'success',
+        'num_samples': total_samples,
+        'num_batches': num_batches,
+        'dataset_type': dataset_type,
+        'output_path': output_path,
     }
