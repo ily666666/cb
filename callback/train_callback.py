@@ -603,6 +603,14 @@ def edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     elif edge_id == 2:
         return edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id is None:
+        r1 = edge_kd_1_callback(task_id, edge_id=1, config_name='edge_kd_1', **kwargs)
+        if r1.get('status') == 'error':
+            return r1
+        r2 = edge_kd_2_callback(task_id, edge_id=2, config_name='edge_kd_2', **kwargs)
+        if r2.get('status') == 'error':
+            return r2
+        return {'status': 'success', 'edge_1': r1, 'edge_2': r2}
     return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
 
 
@@ -3183,6 +3191,14 @@ def rml2016_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return rml2016_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     elif edge_id == 2:
         return rml2016_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id is None:
+        r1 = rml2016_edge_kd_1_callback(task_id, edge_id=1, config_name='rml2016_edge_kd_1', **kwargs)
+        if r1.get('status') == 'error':
+            return r1
+        r2 = rml2016_edge_kd_2_callback(task_id, edge_id=2, config_name='rml2016_edge_kd_2', **kwargs)
+        if r2.get('status') == 'error':
+            return r2
+        return {'status': 'success', 'edge_1': r1, 'edge_2': r2}
     else:
         return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
 
@@ -4213,6 +4229,14 @@ def radar_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return radar_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     elif edge_id == 2:
         return radar_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id is None:
+        r1 = radar_edge_kd_1_callback(task_id, edge_id=1, config_name='radar_edge_kd_1', **kwargs)
+        if r1.get('status') == 'error':
+            return r1
+        r2 = radar_edge_kd_2_callback(task_id, edge_id=2, config_name='radar_edge_kd_2', **kwargs)
+        if r2.get('status') == 'error':
+            return r2
+        return {'status': 'success', 'edge_1': r1, 'edge_2': r2}
     else:
         return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
 
@@ -5031,6 +5055,14 @@ def ratr_edge_kd_callback(task_id, edge_id=None, config_name=None, **kwargs):
         return ratr_edge_kd_1_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
     elif edge_id == 2:
         return ratr_edge_kd_2_callback(task_id, edge_id=edge_id, config_name=config_name, **kwargs)
+    elif edge_id is None:
+        r1 = ratr_edge_kd_1_callback(task_id, edge_id=1, config_name='ratr_edge_kd_1', **kwargs)
+        if r1.get('status') == 'error':
+            return r1
+        r2 = ratr_edge_kd_2_callback(task_id, edge_id=2, config_name='ratr_edge_kd_2', **kwargs)
+        if r2.get('status') == 'error':
+            return r2
+        return {'status': 'success', 'edge_1': r1, 'edge_2': r2}
     else:
         return {'status': 'error', 'message': f'不支持的 edge_id: {edge_id}'}
 

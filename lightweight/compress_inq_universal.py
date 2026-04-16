@@ -280,6 +280,9 @@ def run(config_path):
     total_epochs = len(inq_steps) * epochs_per_step
     lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_epochs)
 
+    total_batches = len(train_loader)
+    log_interval = max(1, total_batches // 10)
+
     for step_idx in range(len(inq_steps)):
         print(f"\n--- INQ 阶段 {step_idx + 1}/{len(inq_steps)} "
               f"(量化比例: {inq_steps[step_idx] * 100:.0f}%) ---")
@@ -288,7 +291,8 @@ def run(config_path):
         for epoch in range(epochs_per_step):
             model.train()
             running_loss, correct, total = 0.0, 0, 0
-            for batch in train_loader:
+            epoch_t0 = time.perf_counter()
+            for batch_idx, batch in enumerate(train_loader, 1):
                 x, y = batch[0].to(device), batch[1].to(device)
                 optimizer.zero_grad()
                 out = model(x)
@@ -299,14 +303,26 @@ def run(config_path):
                 _, predicted = out.max(1)
                 total += y.size(0)
                 correct += predicted.eq(y).sum().item()
+                if batch_idx % log_interval == 0 or batch_idx == total_batches:
+                    pct = batch_idx / total_batches * 100
+                    cur_loss = running_loss / total
+                    cur_acc = correct / total * 100
+                    elapsed = time.perf_counter() - epoch_t0
+                    eta = elapsed / batch_idx * (total_batches - batch_idx)
+                    global_ep = step_idx * epochs_per_step + epoch + 1
+                    print(f"  [Epoch {global_ep}/{total_epochs}] "
+                          f"batch {batch_idx}/{total_batches} ({pct:.0f}%) | "
+                          f"Loss: {cur_loss:.4f} | Acc: {cur_acc:.2f}% | "
+                          f"ETA: {eta:.0f}s", flush=True)
 
             lr_scheduler.step()
             ep_loss = running_loss / total
             ep_acc = correct / total
             global_ep = step_idx * epochs_per_step + epoch + 1
-            print(f"  [Epoch {global_ep}/{total_epochs}] "
-                  f"LR: {lr_scheduler.get_last_lr()[0]:.6f} | "
-                  f"Loss: {ep_loss:.4f} | Acc: {ep_acc * 100:.2f}%", flush=True)
+            epoch_time = time.perf_counter() - epoch_t0
+            print(f"  [Epoch {global_ep}/{total_epochs} 完成] "
+                  f"LR: {lr_scheduler.get_last_lr()[0]:.6f} | Loss: {ep_loss:.4f} | "
+                  f"Acc: {ep_acc * 100:.2f}% | 耗时: {epoch_time:.1f}s", flush=True)
 
     # ---------- STEP 4: 评估与保存 ----------
     print(f"\n========== STEP 4: 压缩效果评估与保存 ==========")

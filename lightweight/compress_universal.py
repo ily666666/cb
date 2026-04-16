@@ -263,10 +263,14 @@ def run(config_path):
     optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
 
+    total_batches = len(qat_loader)
+    log_interval = max(1, total_batches // 10)
+
     for epoch in range(1, num_epochs + 1):
         model.train()
         running_loss, correct, total = 0.0, 0, 0
-        for X_b, y_b in qat_loader:
+        epoch_t0 = time.perf_counter()
+        for batch_idx, (X_b, y_b) in enumerate(qat_loader, 1):
             X_b, y_b = X_b.to(device), y_b.to(device)
             optimizer.zero_grad()
             fp32_w = apply_fake_quantization(model, num_bits=num_bits)
@@ -279,11 +283,23 @@ def run(config_path):
             _, pred = out.max(1)
             total += y_b.size(0)
             correct += pred.eq(y_b).sum().item()
+            if batch_idx % log_interval == 0 or batch_idx == total_batches:
+                pct = batch_idx / total_batches * 100
+                cur_loss = running_loss / total
+                cur_acc = correct / total * 100
+                elapsed = time.perf_counter() - epoch_t0
+                eta = elapsed / batch_idx * (total_batches - batch_idx)
+                print(f"  [QAT Epoch {epoch}/{num_epochs}] "
+                      f"batch {batch_idx}/{total_batches} ({pct:.0f}%) | "
+                      f"Loss: {cur_loss:.4f} | Acc: {cur_acc:.2f}% | "
+                      f"ETA: {eta:.0f}s", flush=True)
         scheduler.step()
         ep_loss = running_loss / total
         ep_acc = correct / total
-        print(f"  [QAT Epoch {epoch}/{num_epochs}] LR: {scheduler.get_last_lr()[0]:.6f} | Loss: {ep_loss:.4f} | Acc: {ep_acc * 100:.2f}%",
-              flush=True)
+        epoch_time = time.perf_counter() - epoch_t0
+        print(f"  [QAT Epoch {epoch}/{num_epochs} 完成] "
+              f"LR: {scheduler.get_last_lr()[0]:.6f} | Loss: {ep_loss:.4f} | "
+              f"Acc: {ep_acc * 100:.2f}% | 耗时: {epoch_time:.1f}s", flush=True)
 
     # ---------- STEP 4: 评估与保存 ----------
     print(f"\n========== STEP 4: 压缩效果评估与保存 ==========")
