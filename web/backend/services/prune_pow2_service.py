@@ -137,7 +137,27 @@ def _find_data_path(task_id: str, dataset_type: str) -> Optional[str]:
     return None
 
 
-_running_task = {"active": False, "pid": None, "method": None, "log_file": None, "start_time": None}
+_running_task = {
+    "active": False, "proc": None, "pid": None,
+    "method": None, "log_file": None, "log_fh": None, "start_time": None,
+}
+
+
+def _is_proc_alive() -> bool:
+    proc = _running_task.get("proc")
+    if proc is None:
+        return False
+    return proc.poll() is None
+
+
+def _cleanup_log_fh():
+    fh = _running_task.get("log_fh")
+    if fh:
+        try:
+            fh.close()
+        except Exception:
+            pass
+        _running_task["log_fh"] = None
 
 
 def get_status() -> Dict:
@@ -146,21 +166,18 @@ def get_status() -> Dict:
 
     log_tail = ""
     if _running_task["log_file"] and os.path.isfile(_running_task["log_file"]):
-        with open(_running_task["log_file"], "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-            log_tail = "".join(lines[-80:])
-
-    pid = _running_task["pid"]
-    still_running = False
-    if pid:
         try:
-            os.kill(pid, 0)
-            still_running = True
-        except OSError:
-            still_running = False
+            with open(_running_task["log_file"], "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+                log_tail = "".join(lines[-80:])
+        except Exception:
+            pass
+
+    still_running = _is_proc_alive()
 
     if not still_running:
         _running_task["active"] = False
+        _cleanup_log_fh()
 
     elapsed = time.time() - _running_task["start_time"] if _running_task["start_time"] else 0
     return {
@@ -175,20 +192,24 @@ def stop_compress() -> Dict:
     if not _running_task["active"]:
         return {"status": "ok", "message": "没有正在运行的任务"}
 
-    pid = _running_task["pid"]
-    if pid:
+    proc = _running_task.get("proc")
+    if proc and proc.poll() is None:
         try:
-            import signal
-            os.kill(pid, signal.SIGTERM)
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
             _running_task["active"] = False
-            return {"status": "ok", "message": f"已终止进程 {pid}"}
-        except ProcessLookupError:
-            _running_task["active"] = False
-            return {"status": "ok", "message": "进程已结束"}
+            _cleanup_log_fh()
+            return {"status": "ok", "message": f"已终止进程 {proc.pid}"}
         except Exception as e:
+            _running_task["active"] = False
+            _cleanup_log_fh()
             return {"status": "error", "message": str(e)}
     _running_task["active"] = False
-    return {"status": "ok"}
+    _cleanup_log_fh()
+    return {"status": "ok", "message": "进程已结束"}
 
 
 def run_compress(model_path: str, params: Dict) -> Dict:
@@ -258,19 +279,32 @@ def run_compress(model_path: str, params: Dict) -> Dict:
     else:
         cmd = [python_exe, INQ_SCRIPT, config_file]
 
-    log_fh = open(log_file, "w", encoding="utf-8")
-    proc = subprocess.Popen(
-        cmd,
-        cwd=LIGHTWEIGHT_DIR,
-        stdout=log_fh,
-        stderr=subprocess.STDOUT,
-        env={**os.environ, "PYTHONUNBUFFERED": "1"},
-    )
+    try:
+        log_fh = open(log_file, "w", encoding="utf-8")
+        popen_kwargs = dict(
+            cwd=LIGHTWEIGHT_DIR,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+        )
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+    except Exception as e:
+        try:
+            log_fh.close()
+        except Exception:
+            pass
+        return {"status": "error", "message": f"启动压缩进程失败: {e}"}
 
     _running_task["active"] = True
+    _running_task["proc"] = proc
     _running_task["pid"] = proc.pid
     _running_task["method"] = INQ_METHOD["name"]
     _running_task["log_file"] = log_file
+    _running_task["log_fh"] = log_fh
     _running_task["start_time"] = time.time()
 
     return {"status": "started", "pid": proc.pid, "method": INQ_METHOD["name"]}

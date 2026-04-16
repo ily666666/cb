@@ -228,10 +228,15 @@ def run_task_async(task_id: str, mode: str = None, step: str = None,
     def _run():
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         try:
-            proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            popen_kwargs = dict(
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, cwd=PROJECT_ROOT, bufsize=1, env=env,
             )
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = (
+                    subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            proc = subprocess.Popen(cmd, **popen_kwargs)
             _running_tasks[task_id]["proc"] = proc
             for line in iter(proc.stdout.readline, ''):
                 _running_tasks[task_id]["output_lines"].append(line.rstrip())
@@ -284,9 +289,8 @@ def stop_task(task_id: str) -> Dict:
 
     proc = info.get("proc")
     if proc and proc.poll() is None:
-        import signal
         try:
-            os.kill(proc.pid, signal.SIGTERM)
+            proc.terminate()
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
