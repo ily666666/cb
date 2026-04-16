@@ -16,8 +16,9 @@
           {{ item.label }}
         </router-link>
       </nav>
-      <div style="padding: 16px 24px; font-size: 11px; color: var(--text-secondary); border-top: 1px solid rgba(255,255,255,0.06);">
-        v1.0.0
+      <div style="padding: 16px 24px; font-size: 11px; color: var(--text-secondary); border-top: 1px solid rgba(255,255,255,0.06); cursor: default; user-select: none;"
+           @click="demoMode = !demoMode">
+        v1.0.0{{ demoMode ? ' · demo' : '' }}
       </div>
     </aside>
     <main class="main-content">
@@ -31,6 +32,11 @@
 </template>
 
 <script setup>
+import { ref, provide } from 'vue'
+
+const demoMode = ref(false)
+provide('demoMode', demoMode)
+
 const navItems = [
   { path: '/', label: '系统概览', icon: 'Monitor' },
   { path: '/data', label: '数据接入', icon: 'FolderOpened' },

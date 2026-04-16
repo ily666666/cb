@@ -171,10 +171,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { prunePow2Api } from '../api'
 import { ElMessage } from 'element-plus'
 import WebTerminal from '../components/WebTerminal.vue'
+
+const demoMode = inject('demoMode', ref(false))
 
 const method = ref(null)
 const models = ref([])
@@ -207,9 +209,11 @@ async function startCompress() {
   compressResult.value = ''
   taskStatus.value = {}
   try {
+    const params = { ...paramValues.value, data_path: selectedData.value }
+    if (demoMode.value) params.fast_mode = true
     const res = await prunePow2Api.run({
       model_path: selectedModel.value,
-      params: { ...paramValues.value, data_path: selectedData.value },
+      params,
     })
     if (res.status === 'error') {
       ElMessage.error(res.message)

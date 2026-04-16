@@ -15,6 +15,7 @@ from config_refactor import TASKS_ROOT
 
 LIGHTWEIGHT_DIR = os.path.join(PROJECT_ROOT, 'lightweight')
 COMPRESS_SCRIPT = os.path.join(LIGHTWEIGHT_DIR, 'compress_universal.py')
+SIMULATE_SCRIPT = os.path.join(LIGHTWEIGHT_DIR, 'compress_simulate.py')
 RESULT_DIR = os.path.join(LIGHTWEIGHT_DIR, 'result')
 
 COMPRESS_METHODS = [
@@ -229,7 +230,9 @@ def run_compress(method_id: str, model_path: str, params: Dict) -> Dict:
     if not model_path or not os.path.isfile(model_path):
         return {"status": "error", "message": f"模型文件不存在: {model_path}"}
 
-    if not os.path.isfile(COMPRESS_SCRIPT):
+    fast_mode = params.pop("fast_mode", False)
+
+    if not fast_mode and not os.path.isfile(COMPRESS_SCRIPT):
         return {"status": "error", "message": "通用压缩脚本不存在"}
 
     meta = _read_model_meta(model_path)
@@ -276,9 +279,12 @@ def run_compress(method_id: str, model_path: str, params: Dict) -> Dict:
     log_file = os.path.join(LIGHTWEIGHT_DIR, f"_run_{ts}.log")
 
     python_exe = sys.executable
+    script = SIMULATE_SCRIPT if fast_mode else COMPRESS_SCRIPT
+    cmd = [python_exe, script, config_file]
+
     log_fh = open(log_file, "w", encoding="utf-8")
     proc = subprocess.Popen(
-        [python_exe, COMPRESS_SCRIPT, config_file],
+        cmd,
         cwd=LIGHTWEIGHT_DIR,
         stdout=log_fh,
         stderr=subprocess.STDOUT,
