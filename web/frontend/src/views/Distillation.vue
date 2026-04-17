@@ -94,7 +94,7 @@
           <div class="param-model teacher">
             <div class="param-role">教师模型（云侧）</div>
             <div class="param-size">{{ teacherModel.size_mb }} MB</div>
-            <div class="param-count">≈ {{ (teacherModel.size_mb / 4 * 1024 * 1024 / 1000000).toFixed(2) }} M 参数</div>
+            <div class="param-count">≈ {{ formatParamCount(teacherModel) }} 参数</div>
           </div>
           <div class="param-arrow">
             <div class="compress-ratio">{{ compressionRatio }}%</div>
@@ -103,7 +103,7 @@
           <div class="param-model student">
             <div class="param-role">学生模型（边侧）</div>
             <div class="param-size">{{ studentModel.size_mb }} MB</div>
-            <div class="param-count">≈ {{ (studentModel.size_mb / 4 * 1024 * 1024 / 1000000).toFixed(2) }} M 参数</div>
+            <div class="param-count">≈ {{ formatParamCount(studentModel) }} 参数</div>
           </div>
         </div>
         <div class="param-bar-wrap">
@@ -181,6 +181,13 @@ const studentRatioPercent = computed(() => {
   if (!t || !s || !t.size_mb) return 0
   return Math.max(5, (s.size_mb / t.size_mb) * 100)
 })
+
+function formatParamCount(model) {
+  const pc = model.param_count || Math.round(model.size_mb / 4 * 1024 * 1024)
+  if (pc >= 1_000_000) return (pc / 1_000_000).toFixed(2) + ' M'
+  if (pc >= 1_000) return (pc / 1_000).toFixed(1) + ' K'
+  return pc.toString()
+}
 
 function onTaskSelect(row) {
   if (row) selectedTask.value = row.task_id
