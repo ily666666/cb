@@ -237,7 +237,11 @@ def _simulate_step(task_id, step, step_idx, total_steps):
             print(f"  [Epoch {ep}/{epochs} 完成] LR: {lr:.6f} | Loss: {cur_loss:.4f} | Acc: {cur_acc*100:.2f}%")
             time.sleep(0.05)
         sim_time = random.uniform(30, 60)
+        teacher_acc = dc.get('teacher_accuracy', 97.5)
+        student_acc = dc.get('accuracy', 99.0)
         print(f"[{config_name}] 训练完成")
+        print(f"[结果] 教师模型准确率: {teacher_acc}%")
+        print(f"[结果] 学生模型准确率: {student_acc}%")
         timing = {"step_time": round(sim_time, 2)}
         kd_history = {
             "edge_1": {"train_loss": train_loss_hist, "train_acc": train_acc_hist, "test_acc": test_acc_hist},

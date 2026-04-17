@@ -131,10 +131,15 @@
     </div>
 
     <el-dialog v-model="demoConfigVisible" title="参数设置" width="360px" destroy-on-close>
-      <el-form label-width="90px" size="small">
-        <el-form-item label="目标准确率">
+      <el-form label-width="110px" size="small">
+        <el-form-item label="教师模型准确率">
+          <el-input-number v-model="teacherAcc" :min="50" :max="100"
+            :precision="1" :step="0.5" style="width: 150px;" />
+          <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
+        </el-form-item>
+        <el-form-item label="学生模型准确率">
           <el-input-number v-model="targetAcc" :min="50" :max="100"
-            :precision="1" :step="0.5" style="width: 160px;" />
+            :precision="1" :step="0.5" style="width: 150px;" />
           <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
         </el-form-item>
       </el-form>
@@ -154,6 +159,7 @@ import { Setting } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
 const demoMode = ref(false)
+const teacherAcc = ref(97.5)
 const targetAcc = ref(96.5)
 const demoConfigVisible = ref(false)
 const tasks = ref([])
@@ -272,7 +278,8 @@ function renderCharts() {
 async function startDistillation() {
   taskResult.value = ''
   try {
-    const res = await distillationApi.start(selectedTask.value, demoMode.value, demoMode.value ? targetAcc.value : null)
+    const res = await distillationApi.start(selectedTask.value, demoMode.value,
+      demoMode.value ? targetAcc.value : null, demoMode.value ? teacherAcc.value : null)
     if (res.status === 'error') {
       ElMessage.error(res.message)
       return

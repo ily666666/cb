@@ -30,6 +30,6 @@
     "_注释_device": "计算设备",
     "device": "cuda:0",
     "display_config": {
-        "accuracy": 94.5
+        "accuracy": 98.0
     }
 }

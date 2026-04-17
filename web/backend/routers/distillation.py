@@ -13,8 +13,10 @@ async def get_train_tasks():
 
 
 @router.post("/{task_id}/start")
-async def start_distillation(task_id: str, fast_mode: bool = Query(False), accuracy: float = Query(None)):
-    return distillation_service.start_distillation(task_id, fast_mode=fast_mode, accuracy=accuracy)
+async def start_distillation(task_id: str, fast_mode: bool = Query(False),
+                             accuracy: float = Query(None), teacher_accuracy: float = Query(None)):
+    return distillation_service.start_distillation(task_id, fast_mode=fast_mode,
+                                                   accuracy=accuracy, teacher_accuracy=teacher_accuracy)
 
 
 @router.get("/{task_id}/status")

@@ -67,10 +67,11 @@ export const lightweightApi = {
 
 export const distillationApi = {
   tasks: () => api.get('/distillation/tasks'),
-  start: (taskId, fastMode, accuracy) => {
+  start: (taskId, fastMode, accuracy, teacherAccuracy) => {
     const params = {}
     if (fastMode) params.fast_mode = true
     if (accuracy != null) params.accuracy = accuracy
+    if (teacherAccuracy != null) params.teacher_accuracy = teacherAccuracy
     return api.post(`/distillation/${taskId}/start`, null, { params })
   },
   status: (taskId) => api.get(`/distillation/${taskId}/status`),

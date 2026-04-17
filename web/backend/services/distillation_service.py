@@ -84,14 +84,15 @@ def get_train_tasks() -> List[Dict]:
     return results
 
 
-def start_distillation(task_id: str, fast_mode: bool = False, accuracy: float = None) -> Dict:
+def start_distillation(task_id: str, fast_mode: bool = False,
+                       accuracy: float = None, teacher_accuracy: float = None) -> Dict:
     """启动知识蒸馏任务"""
-    if fast_mode and accuracy is not None:
-        _update_kd_accuracy(task_id, accuracy)
+    if fast_mode:
+        _update_kd_accuracy(task_id, accuracy, teacher_accuracy)
     return run_task_async(task_id, mode=KD_MODE, fast_mode=fast_mode)
 
 
-def _update_kd_accuracy(task_id: str, accuracy: float):
+def _update_kd_accuracy(task_id: str, accuracy: float = None, teacher_accuracy: float = None):
     """将目标准确率写入所有 KD 配置的 display_config"""
     input_dir = os.path.join(PROJECT_ROOT, TASKS_ROOT, task_id, "input")
     if not os.path.isdir(input_dir):
@@ -104,7 +105,10 @@ def _update_kd_accuracy(task_id: str, accuracy: float):
             with open(fpath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             dc = data.setdefault('display_config', {})
-            dc['accuracy'] = accuracy
+            if accuracy is not None:
+                dc['accuracy'] = accuracy
+            if teacher_accuracy is not None:
+                dc['teacher_accuracy'] = teacher_accuracy
             with open(fpath, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
         except Exception:
