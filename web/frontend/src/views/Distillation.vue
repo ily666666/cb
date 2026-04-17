@@ -220,11 +220,6 @@ async function loadTaskDetails(taskId) {
       distillationApi.history(taskId),
     ])
     outputModels.value = modelsRes.models || []
-    const t = outputModels.value.find(m => m.role === 'teacher')
-    const s = outputModels.value.find(m => m.role === 'student')
-    if (t && s && t.size_mb > 0) {
-      compressRatio.value = +((1 - s.size_mb / t.size_mb) * 100).toFixed(1)
-    }
     kdHistory.value = histRes.history
     if (kdHistory.value) {
       await nextTick()
