@@ -87,7 +87,7 @@
     </div>
 
     <!-- 模型参数量对比 -->
-    <div v-if="selectedTask && outputModels.length && teacherModel && studentModel">
+    <div v-if="selectedTask && teacherModel">
       <div class="card compact">
         <div class="card-title"><el-icon><DataAnalysis /></el-icon> 模型参数量对比</div>
         <div class="param-compare">
@@ -132,6 +132,11 @@
 
     <el-dialog v-model="demoConfigVisible" title="参数设置" width="360px" destroy-on-close>
       <el-form label-width="110px" size="small">
+        <el-form-item label="模型压缩率">
+          <el-input-number v-model="compressRatio" :min="10" :max="99.9"
+            :precision="1" :step="1" style="width: 150px;" />
+          <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
+        </el-form-item>
         <el-form-item label="教师模型准确率">
           <el-input-number v-model="teacherAcc" :min="50" :max="100"
             :precision="1" :step="0.5" style="width: 150px;" />
@@ -161,6 +166,7 @@ import * as echarts from 'echarts'
 const demoMode = ref(false)
 const teacherAcc = ref(97.5)
 const targetAcc = ref(96.5)
+const compressRatio = ref(97.4)
 const demoConfigVisible = ref(false)
 const tasks = ref([])
 const selectedTask = ref('')
@@ -174,19 +180,17 @@ const chartRefs = ref({})
 const chartInstances = []
 
 const teacherModel = computed(() => outputModels.value.find(m => m.role === 'teacher'))
-const studentModel = computed(() => outputModels.value.find(m => m.role === 'student'))
-const compressionRatio = computed(() => {
+const studentModel = computed(() => {
   const t = teacherModel.value
-  const s = studentModel.value
-  if (!t || !s || !t.size_mb) return '—'
-  return ((1 - s.size_mb / t.size_mb) * 100).toFixed(1)
+  if (!t || !t.size_mb) return null
+  const ratio = compressRatio.value / 100
+  const sMb = +(t.size_mb * (1 - ratio)).toFixed(2)
+  const tpc = t.param_count || Math.round(t.size_mb * 1024 * 1024 / 4)
+  const spc = Math.round(tpc * (1 - ratio))
+  return { size_mb: sMb, param_count: spc }
 })
-const studentRatioPercent = computed(() => {
-  const t = teacherModel.value
-  const s = studentModel.value
-  if (!t || !s || !t.size_mb) return 0
-  return Math.max(5, (s.size_mb / t.size_mb) * 100)
-})
+const compressionRatio = computed(() => compressRatio.value.toFixed(1))
+const studentRatioPercent = computed(() => Math.max(3, 100 - compressRatio.value))
 
 function formatParamCount(model) {
   const pc = model.param_count || Math.round(model.size_mb / 4 * 1024 * 1024)
@@ -216,6 +220,11 @@ async function loadTaskDetails(taskId) {
       distillationApi.history(taskId),
     ])
     outputModels.value = modelsRes.models || []
+    const t = outputModels.value.find(m => m.role === 'teacher')
+    const s = outputModels.value.find(m => m.role === 'student')
+    if (t && s && t.size_mb > 0) {
+      compressRatio.value = +((1 - s.size_mb / t.size_mb) * 100).toFixed(1)
+    }
     kdHistory.value = histRes.history
     if (kdHistory.value) {
       await nextTick()

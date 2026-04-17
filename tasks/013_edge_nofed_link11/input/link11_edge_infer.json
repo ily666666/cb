@@ -1,10 +1,10 @@
 {
-    "model_path": "/home/user/coderepository/cb/tasks/004_train_link11/output/link11_cloud_pretrain/teacher_model.pth",
-    "model_type": "complex_resnet50_link11_with_attention",
+    "model_path": "edge_pth/link11/edge_1_federated_model.pth",
+    "model_type": "real_resnet20_link11_h",
     "num_classes": 7,
     "device": "cuda:0",
-    "batch_size": 256,
-    "simulate_bandwidth_mbps": 10,
+    "batch_size": 32,
+    "simulate_bandwidth_mbps": 100,
     "input_data": {
         "parent_folder": "link11_device_load",
         "file_name": "data_batch.pkl"
@@ -13,7 +13,7 @@
     "display_config": {
         "simulate_realtime": false,
         "data_size_mb": 120.5,
-        "time": 1649.05,
-        "accuracy": 99.68
+        "time": 9.8,
+        "accuracy": 96.64
     }
 }

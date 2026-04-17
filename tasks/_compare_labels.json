@@ -1,4 +1,8 @@
 {
   "001_collab_link11": "云边协同推理",
-  "002_cloud_only_link11": "纯云推理"
+  "002_cloud_only_link11": "纯云推理",
+  "013_edge_nofed_link11": "边推理（非联邦）",
+  "014_edge_nofed_rml2016": "边推理 (非联邦)",
+  "015_edge_nofed_radar": "边推理 (非联邦)",
+  "016_edge_nofed_ratr": "边推理 (非联邦)"
 }
