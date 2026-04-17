@@ -1,7 +1,7 @@
 """
 知识蒸馏路由
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from services import distillation_service
 
 router = APIRouter()
@@ -13,8 +13,8 @@ async def get_train_tasks():
 
 
 @router.post("/{task_id}/start")
-async def start_distillation(task_id: str):
-    return distillation_service.start_distillation(task_id)
+async def start_distillation(task_id: str, fast_mode: bool = Query(False), accuracy: float = Query(None)):
+    return distillation_service.start_distillation(task_id, fast_mode=fast_mode, accuracy=accuracy)
 
 
 @router.get("/{task_id}/status")

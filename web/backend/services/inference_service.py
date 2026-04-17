@@ -220,57 +220,43 @@ def _get_inference_visualization_data(task_id: str) -> Optional[Dict]:
         return None
 
     steps = timing.get("steps", {})
+    if not steps:
+        return None
+
+    label_map = {
+        "device_load": "端侧加载",
+        "edge_infer": "边侧推理",
+        "cloud_infer": "云侧推理",
+        "cloud_direct_infer": "云侧直接推理",
+    }
 
     step_names = list(steps.keys())
     step_labels = []
     for s in step_names:
-        label_map = {
-            "device_load": "端侧加载",
-            "edge_infer": "边侧推理",
-            "cloud_infer": "云侧推理",
-            "cloud_direct_infer": "云侧直接推理",
-        }
-        step_labels.append(label_map.get(s, s))
-
-    has_transfer = timing.get("total_transfer", 0) > 0
+        matched = False
+        for key, label in label_map.items():
+            if key in s:
+                step_labels.append(label)
+                matched = True
+                break
+        if not matched:
+            step_labels.append(s)
 
     bar_series = {
-        "数据加载": [steps[s].get("data_load_time", 0) for s in step_names],
-        "数据预处理": [steps[s].get("preprocess_time", 0) for s in step_names],
-        "模型加载": [steps[s].get("model_load_time", 0) for s in step_names],
-        "热身": [steps[s].get("warmup_time", 0) for s in step_names],
-        "推理": [steps[s].get("inference_time", 0) for s in step_names],
+        "耗时": [round(steps[s].get("step_time", 0), 2) for s in step_names],
     }
-    if has_transfer:
-        bar_series["传输"] = [steps[s].get("transfer_time", 0) for s in step_names]
 
     pie_data = [
-        {"name": "数据加载", "value": round(timing["total_data_load"], 4)},
-        {"name": "数据预处理", "value": round(timing["total_preprocess"], 4)},
-        {"name": "推理计算", "value": round(timing["total_inference"], 4)},
-        {"name": "模型加载+热身", "value": round(timing["total_overhead"], 4)},
+        {"name": lbl, "value": round(steps[s].get("step_time", 0), 4)}
+        for s, lbl in zip(step_names, step_labels)
     ]
-    if has_transfer:
-        pie_data.append({"name": "网络传输", "value": round(timing["total_transfer"], 4)})
 
-    summary = {
-        "total_data_load": round(timing["total_data_load"], 4),
-        "total_preprocess": round(timing["total_preprocess"], 4),
-        "total_inference": round(timing["total_inference"], 4),
-        "total_overhead": round(timing["total_overhead"], 4),
-        "total_transfer": round(timing["total_transfer"], 4),
-        "has_transfer": has_transfer,
-        "total": round(sum([
-            timing["total_data_load"], timing["total_preprocess"],
-            timing["total_inference"], timing["total_overhead"],
-            timing["total_transfer"],
-        ]), 4),
-    }
+    total = round(timing.get("total_time", 0), 4)
+    summary = {"total": total}
 
     return {
         "task_type": "inference",
         "timing_bar": {"categories": step_labels, "series": bar_series},
         "timing_pie": {"data": pie_data},
         "summary": summary,
-        "reports": _load_reports(task_id),
     }

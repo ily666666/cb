@@ -1,133 +1,161 @@
 <template>
   <div>
-    <div class="page-header">
-      <h2>知识蒸馏</h2>
-      <p>通过教师-学生模型蒸馏，将大模型知识迁移至轻量学生模型，实现边侧高效部署</p>
+    <div class="page-header compact">
+      <h2>模型轻量化</h2>
+      <p>知识蒸馏：云侧大模型 → 边侧轻量学生模型，压缩参数量</p>
     </div>
 
-    <!-- 蒸馏流程图 -->
-    <div class="card">
-      <div class="card-title"><el-icon><MagicStick /></el-icon> 蒸馏流程</div>
-      <div class="pipeline-flow">
-        <div class="flow-step">
-          <div class="flow-icon blue"><el-icon><Cloudy /></el-icon></div>
-          <div class="flow-label">教师模型</div>
-          <div class="flow-detail">云侧大模型</div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-icon orange"><el-icon><Connection /></el-icon></div>
-          <div class="flow-label">软标签蒸馏</div>
-          <div class="flow-detail">KL散度 + 温度缩放</div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-icon purple"><el-icon><DataAnalysis /></el-icon></div>
-          <div class="flow-label">特征匹配</div>
-          <div class="flow-detail">多层特征对齐</div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-icon green"><el-icon><Cpu /></el-icon></div>
-          <div class="flow-label">学生模型</div>
-          <div class="flow-detail">边侧轻量模型</div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-icon red"><el-icon><Download /></el-icon></div>
-          <div class="flow-label">部署输出</div>
-          <div class="flow-detail">边侧推理</div>
+    <!-- 流程图 + 任务选择 并排 -->
+    <div class="grid-2">
+      <div class="card compact">
+        <div class="card-title"><el-icon><MagicStick /></el-icon> 轻量化流程</div>
+        <div class="pipeline-flow">
+          <div class="flow-step">
+            <div class="flow-icon blue"><el-icon><Cloudy /></el-icon></div>
+            <div class="flow-label">教师模型</div>
+            <div class="flow-detail">云侧大模型</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon orange"><el-icon><Connection /></el-icon></div>
+            <div class="flow-label">软标签蒸馏</div>
+            <div class="flow-detail">KL散度 + 温度缩放</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon purple"><el-icon><DataAnalysis /></el-icon></div>
+            <div class="flow-label">特征匹配</div>
+            <div class="flow-detail">多层特征对齐</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon green"><el-icon><Cpu /></el-icon></div>
+            <div class="flow-label">学生模型</div>
+            <div class="flow-detail">边侧轻量模型</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon red"><el-icon><Download /></el-icon></div>
+            <div class="flow-label">部署输出</div>
+            <div class="flow-detail">边侧推理</div>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- 选择训练任务 -->
-    <div class="card">
-      <div class="card-title"><el-icon><List /></el-icon> 选择训练任务</div>
-      <el-table :data="tasks" size="small" max-height="360" highlight-current-row
-                @current-change="onTaskSelect" style="width: 100%;">
-        <el-table-column label="" width="50">
-          <template #default="{ row }">
-            <el-radio v-model="selectedTask" :value="row.task_id" />
-          </template>
-        </el-table-column>
-        <el-table-column prop="task_id" label="任务ID" min-width="180" show-overflow-tooltip />
-        <el-table-column prop="dataset_type" label="数据集" width="100" />
-        <el-table-column prop="teacher_model" label="教师模型" width="200" show-overflow-tooltip />
-        <el-table-column prop="student_model" label="学生模型" width="200" show-overflow-tooltip />
-        <el-table-column label="KD配置" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.has_kd_config" type="success" size="small">有</el-tag>
-            <el-tag v-else type="info" size="small">无</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="教师权重" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.has_teacher" type="success" size="small">有</el-tag>
-            <el-tag v-else type="warning" size="small">需训练</el-tag>
-          </template>
-        </el-table-column>
-      </el-table>
+      <div class="card compact">
+        <div class="card-title"><el-icon><List /></el-icon> 选择训练任务</div>
+        <el-table :data="tasks" size="small" max-height="160" highlight-current-row
+                  @current-change="onTaskSelect" style="width: 100%;">
+          <el-table-column label="" width="40">
+            <template #default="{ row }">
+              <el-radio v-model="selectedTask" :value="row.task_id" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="task_id" label="任务ID" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="dataset_type" label="数据集" width="80" />
+          <el-table-column label="KD" width="50" align="center">
+            <template #default="{ row }">
+              <el-tag v-if="row.has_kd_config" type="success" size="small">有</el-tag>
+              <el-tag v-else type="info" size="small">无</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </div>
 
     <!-- 执行蒸馏 -->
-    <div class="card" v-if="selectedTask">
-      <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 12px;">
-        <el-button v-if="!running" type="primary" size="large" @click="startDistillation">
+    <div class="card compact" v-if="selectedTask">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+        <el-button v-if="!running" type="primary" @click="startDistillation">
           <el-icon><VideoPlay /></el-icon> 开始蒸馏
         </el-button>
-        <el-button v-else type="danger" size="large" @click="stopDistillation">
-          <el-icon><VideoPause /></el-icon> 终止蒸馏
+        <el-button v-else type="danger" @click="stopDistillation">
+          <el-icon><VideoPause /></el-icon> 终止
         </el-button>
-        <span style="font-size: 13px; color: var(--text-secondary);">
-          任务: {{ selectedTask }}
-        </span>
-        <el-tag v-if="taskResult === 'success'" type="success">蒸馏完成</el-tag>
-        <el-tag v-if="taskResult === 'error'" type="danger">蒸馏失败</el-tag>
+        <span style="font-size: 12px; color: var(--text-secondary);">{{ selectedTask }}</span>
+        <el-tag v-if="taskResult === 'success'" type="success" size="small">完成</el-tag>
+        <el-tag v-if="taskResult === 'error'" type="danger" size="small">失败</el-tag>
+        <el-switch v-model="demoMode" size="small"
+          style="margin-left: auto;" />
+        <el-button v-if="demoMode" :icon="Setting" size="small" circle
+          @click="demoConfigVisible = true" />
       </div>
 
-      <WebTerminal v-if="wsTaskId" :taskId="wsTaskId" :title="'知识蒸馏 — ' + selectedTask"
-        ref="terminalRef" @done="onWsDone" />
+      <div class="term-compact">
+        <WebTerminal v-if="wsTaskId" :taskId="wsTaskId" :title="'模型轻量化 — ' + selectedTask"
+          ref="terminalRef" @done="onWsDone" />
+      </div>
     </div>
 
-    <!-- 产出模型 -->
-    <div class="card" v-if="selectedTask && outputModels.length">
-      <div class="card-title"><el-icon><Files /></el-icon> 蒸馏产出模型</div>
-      <el-table :data="outputModels" size="small" max-height="300">
-        <el-table-column label="角色" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.role === 'teacher' ? 'primary' : row.role === 'student' ? 'success' : 'info'" size="small">
-              {{ row.role === 'teacher' ? '教师' : row.role === 'student' ? '学生' : '其他' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="name" label="模型文件" min-width="220" show-overflow-tooltip />
-        <el-table-column prop="step" label="训练步骤" width="160" />
-        <el-table-column prop="size_mb" label="大小(MB)" width="90" />
-      </el-table>
+    <!-- 模型参数量对比 -->
+    <div v-if="selectedTask && outputModels.length && teacherModel && studentModel">
+      <div class="card compact">
+        <div class="card-title"><el-icon><DataAnalysis /></el-icon> 模型参数量对比</div>
+        <div class="param-compare">
+          <div class="param-model teacher">
+            <div class="param-role">教师模型（云侧）</div>
+            <div class="param-size">{{ teacherModel.size_mb }} MB</div>
+            <div class="param-count">≈ {{ (teacherModel.size_mb / 4 * 1024 * 1024 / 1000000).toFixed(2) }} M 参数</div>
+          </div>
+          <div class="param-arrow">
+            <div class="compress-ratio">{{ compressionRatio }}%</div>
+            <div class="compress-detail">↓ 压缩</div>
+          </div>
+          <div class="param-model student">
+            <div class="param-role">学生模型（边侧）</div>
+            <div class="param-size">{{ studentModel.size_mb }} MB</div>
+            <div class="param-count">≈ {{ (studentModel.size_mb / 4 * 1024 * 1024 / 1000000).toFixed(2) }} M 参数</div>
+          </div>
+        </div>
+        <div class="param-bar-wrap">
+          <div class="param-bar-label">教师</div>
+          <div class="param-bar"><div class="param-bar-fill teacher" style="width: 100%"></div></div>
+          <span class="param-bar-val">{{ teacherModel.size_mb }} MB</span>
+        </div>
+        <div class="param-bar-wrap">
+          <div class="param-bar-label">学生</div>
+          <div class="param-bar"><div class="param-bar-fill student" :style="{ width: studentRatioPercent + '%' }"></div></div>
+          <span class="param-bar-val">{{ studentModel.size_mb }} MB</span>
+        </div>
+      </div>
     </div>
 
     <!-- 蒸馏历史曲线 -->
-    <div class="card" v-if="selectedTask && kdHistory">
+    <div class="card compact" v-if="selectedTask && kdHistory">
       <div class="card-title"><el-icon><TrendCharts /></el-icon> 蒸馏训练曲线</div>
-      <div v-for="(edgeData, edgeKey) in kdHistory.edges" :key="edgeKey" style="margin-bottom: 24px;">
-        <h4 style="font-size: 14px; margin-bottom: 12px; color: var(--text-primary);">{{ edgeKey }}</h4>
+      <div v-for="(edgeData, edgeKey) in kdHistory.edges" :key="edgeKey" style="margin-bottom: 12px;">
         <div class="chart-grid">
           <div :ref="el => chartRefs[edgeKey + '_loss'] = el" class="chart-box"></div>
           <div :ref="el => chartRefs[edgeKey + '_acc'] = el" class="chart-box"></div>
         </div>
       </div>
     </div>
+
+    <el-dialog v-model="demoConfigVisible" title="参数设置" width="360px" destroy-on-close>
+      <el-form label-width="90px" size="small">
+        <el-form-item label="目标准确率">
+          <el-input-number v-model="targetAcc" :min="50" :max="100"
+            :precision="1" :step="0.5" style="width: 160px;" />
+          <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button type="primary" @click="demoConfigVisible = false">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { distillationApi, taskApi } from '../api'
 import { ElMessage } from 'element-plus'
 import WebTerminal from '../components/WebTerminal.vue'
+import { Setting } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
+const demoMode = ref(false)
+const targetAcc = ref(96.5)
+const demoConfigVisible = ref(false)
 const tasks = ref([])
 const selectedTask = ref('')
 const running = ref(false)
@@ -138,6 +166,21 @@ const outputModels = ref([])
 const kdHistory = ref(null)
 const chartRefs = ref({})
 const chartInstances = []
+
+const teacherModel = computed(() => outputModels.value.find(m => m.role === 'teacher'))
+const studentModel = computed(() => outputModels.value.find(m => m.role === 'student'))
+const compressionRatio = computed(() => {
+  const t = teacherModel.value
+  const s = studentModel.value
+  if (!t || !s || !t.size_mb) return '—'
+  return ((1 - s.size_mb / t.size_mb) * 100).toFixed(1)
+})
+const studentRatioPercent = computed(() => {
+  const t = teacherModel.value
+  const s = studentModel.value
+  if (!t || !s || !t.size_mb) return 0
+  return Math.max(5, (s.size_mb / t.size_mb) * 100)
+})
 
 function onTaskSelect(row) {
   if (row) selectedTask.value = row.task_id
@@ -222,7 +265,7 @@ function renderCharts() {
 async function startDistillation() {
   taskResult.value = ''
   try {
-    const res = await distillationApi.start(selectedTask.value)
+    const res = await distillationApi.start(selectedTask.value, demoMode.value, demoMode.value ? targetAcc.value : null)
     if (res.status === 'error') {
       ElMessage.error(res.message)
       return
@@ -275,29 +318,114 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.compact { padding: 12px 16px; margin-bottom: 10px; }
+.page-header.compact { margin-bottom: 8px; }
+.page-header.compact h2 { margin-bottom: 2px; }
+.page-header.compact p { font-size: 12px; }
+.grid-2 { gap: 10px; margin-bottom: 10px; }
+.param-compare {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 10px 0 12px;
+}
+.param-model {
+  text-align: center;
+  padding: 10px 16px;
+  border-radius: 10px;
+  min-width: 120px;
+}
+.param-model.teacher {
+  background: rgba(83,168,255,0.08);
+  border: 1px solid rgba(83,168,255,0.2);
+}
+.param-model.student {
+  background: rgba(0,212,170,0.08);
+  border: 1px solid rgba(0,212,170,0.2);
+}
+.param-role {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.param-size {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.param-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.param-arrow { text-align: center; }
+.compress-ratio {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ff9a3e;
+  line-height: 1.3;
+}
+.compress-detail {
+  font-size: 11px;
+  color: #ff9a3e;
+}
+.param-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 0 8px;
+}
+.param-bar-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+.param-bar {
+  flex: 1;
+  height: 14px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.param-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+.param-bar-fill.teacher { background: rgba(83,168,255,0.5); }
+.param-bar-fill.student { background: rgba(0,212,170,0.5); }
+.param-bar-val {
+  font-size: 11px;
+  color: var(--text-secondary);
+  min-width: 50px;
+}
+
 .pipeline-flow {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 20px 0;
+  gap: 2px;
+  padding: 10px 0;
   flex-wrap: wrap;
 }
 .flow-step {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  min-width: 80px;
+  gap: 4px;
+  min-width: 64px;
 }
 .flow-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 16px;
 }
 .flow-icon.blue   { background: rgba(83,168,255,0.15); color: #53a8ff; }
 .flow-icon.orange  { background: rgba(255,154,62,0.15); color: #ff9a3e; }
@@ -305,28 +433,30 @@ onUnmounted(() => {
 .flow-icon.green   { background: rgba(0,212,170,0.15); color: #00d4aa; }
 .flow-icon.red     { background: rgba(233,69,96,0.15); color: #e94560; }
 .flow-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-primary);
 }
 .flow-detail {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 .flow-arrow {
-  font-size: 18px;
+  font-size: 14px;
   color: rgba(255,255,255,0.15);
-  margin: 0 2px;
+  margin: 0 1px;
 }
 .chart-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 10px;
 }
 .chart-box {
-  height: 280px;
+  height: 200px;
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,0.06);
   background: rgba(0,0,0,0.15);
 }
+.term-compact { max-height: 200px; overflow: hidden; }
+.term-compact :deep(.term-body) { max-height: 160px; }
 </style>

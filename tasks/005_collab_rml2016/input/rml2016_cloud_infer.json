@@ -23,49 +23,11 @@
         "signals_file": "low_conf_signals.pkl"
     },
 
-    "_注释_display_config": "展示模拟配置。存在此字段时跳过真实推理，按配置参数模拟输出。删除此字段则恢复真实推理",
+    "_注释_display_config": "模拟配置。time=传输+推理总耗时(秒), accuracy=最终协同准确率(%)",
     "display_config": {
-        "_注释_simulate_realtime": "true=用time.sleep模拟真实耗时（演示用），false=立即输出但时间值按配置显示（默认）",
         "simulate_realtime": false,
-
-        "_注释_low_conf_samples": "日志中显示的低置信度样本数（边侧发来的数量）",
-        "low_conf_samples": 11,
-
-        "_注释_inference_time": "日志中显示的纯推理耗时(秒)",
-        "inference_time": 0.06,
-
-        "_注释_throughput": "日志中显示的吞吐量(samples/s)",
-        "throughput": 173.3,
-
-        "_注释_cloud_accuracy": "日志中显示的云侧推理准确率(%)",
-        "cloud_accuracy": 72.73,
-
-        "_注释_model_load_time": "日志中显示的模型加载耗时(秒)",
-        "model_load_time": 2.53,
-
-        "_注释_warmup_time": "日志中显示的CUDA热身耗时(秒)",
-        "warmup_time": 0.18,
-
-        "_注释_data_load_time": "日志中显示的数据加载耗时(秒)",
-        "data_load_time": 0.1,
-
-        "_注释_agree_count": "日志中显示的边云预测一致样本数",
-        "agree_count": 3,
-
-        "_注释_agree_ratio": "日志中显示的边云预测一致比例(%)",
-        "agree_ratio": 27.3,
-
-        "_注释_corrected_count": "日志中显示的云侧修正样本数",
-        "corrected_count": 7,
-
-        "_注释_edge_accuracy": "日志中显示的边侧单独准确率(%)",
-        "edge_accuracy": 12.28,
-
-        "_注释_final_accuracy": "日志中显示的边云协同最终准确率(%)",
-        "final_accuracy": 5.28,
-
-        "_注释_accuracy_improvement": "日志中显示的准确率提升值(百分点，如0.01表示+0.01%)",
-        "accuracy_improvement": 0.01
+        "time": 2.77,
+        "accuracy": 97.29
     }
     
 }

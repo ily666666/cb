@@ -1,67 +1,28 @@
 {
-    "_注释_model_path":   "边侧模型权重文件路径(.pth)",
+    "_注释_model_path": "边侧模型权重文件路径(.pth)",
     "model_path": "/home/user/coderepository/cb/tasks/004_train_link11/output/link11_federated_train/edge_2_model.pth",
-
-    "_注释_model_type":   "模型类型名，必须和fed/project.py中的create_model_by_type对应",
+    "_注释_model_type": "模型类型名，必须和fed/project.py中的create_model_by_type对应",
     "model_type": "real_resnet20_link11_h",
-
-    "_注释_num_classes":  "分类数，link11=7",
+    "_注释_num_classes": "分类数，link11=7",
     "num_classes": 7,
-
-    "_注释_device":       "计算设备，cuda:0=第一块GPU，cpu=用CPU推理",
+    "_注释_device": "计算设备，cuda:0=第一块GPU，cpu=用CPU推理",
     "device": "cuda:0",
-
     "_注释_confidence_threshold": "置信度阈值：低于此值的样本判为'低置信度'发给云侧。0=全留边侧，1.0=全发云侧，0.7=常用值",
     "confidence_threshold": 0.5,
-
-    "_注释_batch_size":   "推理批次大小，越大越快但越占显存",
+    "_注释_batch_size": "推理批次大小，越大越快但越占显存",
     "batch_size": 32,
-
     "_注释_simulate_bandwidth_mbps": "模拟网络带宽(MB/s)。设备→边侧=100，不填或null=不模拟",
     "simulate_bandwidth_mbps": 100,
-
-    "_注释_input_data":   "输入数据来源：source=上一步的名称，file_name=那一步输出的文件名",
+    "_注释_input_data": "输入数据来源：source=上一步的名称，file_name=那一步输出的文件名",
     "input_data": {
         "parent_folder": "link11_device_load",
         "file_name": "data_batch.pkl"
     },
-
-    "_注释_display_config": "展示模拟配置。存在此字段时跳过真实推理，按配置参数模拟输出。删除此字段则恢复真实推理",
+    "_注释_display_config": "模拟配置。data_size_mb=数据量(MB), time=传输+推理总耗时(秒), accuracy=准确率(%)",
     "display_config": {
-        "_注释_simulate_realtime": "true=用time.sleep模拟真实耗时（演示用），false=立即输出但时间值按配置显示（默认）",
         "simulate_realtime": false,
-
-        "_注释_total_samples": "日志中显示的总样本数",
-        "total_samples": 100000,
-
-        "_注释_inference_time": "日志中显示的纯推理耗时(秒)，同时决定进度行的时间值",
-        "inference_time": 8.60,
-
-        "_注释_throughput": "日志中显示的吞吐量(samples/s)",
-        "throughput": 11624.1,
-
-        "_注释_accuracy": "日志中显示的边侧整体准确率(%)",
-        "accuracy": 97.28,
-
-        "_注释_model_load_time": "日志中显示的模型加载耗时(秒)",
-        "model_load_time": 0.35,
-
-        "_注释_warmup_time": "日志中显示的CUDA热身耗时(秒)",
-        "warmup_time": 0.29,
-
-        "_注释_data_load_time": "日志中显示的数据加载耗时(秒)",
-        "data_load_time": 0.5,
-
-        "_注释_high_conf_samples": "日志中显示的高置信度样本数",
-        "high_conf_samples": 99989,
-
-        "_注释_low_conf_samples": "日志中显示的低置信度样本数（发给云侧的数量）",
-        "low_conf_samples": 11,
-
-        "_注释_high_conf_accuracy": "日志中显示的高置信度样本准确率(%)",
-        "high_conf_accuracy": 97.28,
-
-        "_注释_low_conf_accuracy": "日志中显示的低置信度样本准确率(%)",
-        "low_conf_accuracy": 18.18
+        "data_size_mb": 120.5,
+        "time": 9.8,
+        "accuracy": 97.28
     }
 }

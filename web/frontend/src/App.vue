@@ -16,9 +16,8 @@
           {{ item.label }}
         </router-link>
       </nav>
-      <div style="padding: 16px 24px; font-size: 11px; color: var(--text-secondary); border-top: 1px solid rgba(255,255,255,0.06); cursor: default; user-select: none;"
-           @click="demoMode = !demoMode">
-        v1.0.0{{ demoMode ? ' · demo' : '' }}
+      <div style="padding: 16px 24px; font-size: 11px; color: var(--text-secondary); border-top: 1px solid rgba(255,255,255,0.06); user-select: none;">
+        v1.0.0
       </div>
     </aside>
     <main class="main-content">
@@ -32,11 +31,6 @@
 </template>
 
 <script setup>
-import { ref, provide } from 'vue'
-
-const demoMode = ref(false)
-provide('demoMode', demoMode)
-
 const navItems = [
   { path: '/', label: '系统概览', icon: 'Monitor' },
   { path: '/data', label: '数据接入', icon: 'FolderOpened' },
@@ -44,7 +38,7 @@ const navItems = [
   { path: '/inference', label: '模型推理计算', icon: 'Cpu' },
   { path: '/models', label: '模型算法管理', icon: 'Setting' },
   { path: '/lightweight', label: '模型轻量化', icon: 'ScaleToOriginal' },
-  { path: '/distillation', label: '知识蒸馏', icon: 'MagicStick' },
-  { path: '/prune-pow2', label: '剪枝量化(2的幂次)', icon: 'Opportunity' },
+  { path: '/pruning', label: '剪枝量化', icon: 'Scissor' },
+  { path: '/compare', label: '对比分析', icon: 'TrendCharts' },
 ]
 </script>

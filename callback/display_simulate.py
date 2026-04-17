@@ -1,67 +1,33 @@
 """
-推理展示模拟器
+推理展示模拟器（简化版）
 
-当 input JSON 中存在 display_config 时，跳过真实推理，
-按配置参数输出模拟日志。
+当 input JSON 中存在 display_config 时，跳过真实推理，按配置参数模拟输出。
 
-关键配置:
-  simulate_realtime: true  → 用 time.sleep 模拟真实耗时（演示用）
-  simulate_realtime: false → 立即打印全部日志，但显示的时间值仍然是配置值（默认）
-
-display_config 示例（边侧）:
+display_config 只需 3 个核心参数：
 {
     "simulate_realtime": false,
-    "total_samples": 100000,
-    "inference_time": 8.60,
-    "throughput": 11624.1,
-    "accuracy": 97.28,
-    "model_load_time": 0.35,
-    "warmup_time": 0.29,
-    "data_load_time": 0.5,
-    "high_conf_samples": 99989,
-    "low_conf_samples": 11,
-    "high_conf_accuracy": 97.28,
-    "low_conf_accuracy": 18.18
+    "data_size_mb": 120.5,      // 数据量(MB)
+    "time": 9.8,                // 传输+推理总耗时(秒)
+    "accuracy": 97.28           // 准确率(%)，device_load 无需此项
 }
 """
 import os
 import sys
 import time
-from datetime import datetime
+import random
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config_refactor import TASKS_ROOT
 from utils_refactor import save_timing
 
 
-def _get_data_size_mb(data_path):
-    """获取数据文件/目录的总大小(MB)"""
-    if not os.path.exists(data_path):
-        return 0
-    if os.path.isfile(data_path):
-        return os.path.getsize(data_path) / (1024 * 1024)
-    total = 0
-    for f in os.listdir(data_path):
-        fp = os.path.join(data_path, f)
-        if os.path.isfile(fp):
-            total += os.path.getsize(fp)
-    return total / (1024 * 1024)
-
-
 def _maybe_sleep(seconds, realtime):
-    """只在 realtime=True 时才真正 sleep"""
     if realtime and seconds > 0:
         time.sleep(seconds)
 
 
 def _simulate_progress(label, total_samples, inference_time, batch_size, realtime=False):
-    """
-    输出进度行，打印时机与 batch_inference_* 一致。
-    realtime=True  → sleep 到对应时间点再打印（逼真）
-    realtime=False → 立即打印，但显示的"耗时"是根据配置计算的虚拟值
-    """
     num_batches = max((total_samples + batch_size - 1) // batch_size, 1)
-
     print_points = []
     for batch_idx in range(num_batches):
         batch_num = batch_idx + 1
@@ -89,351 +55,36 @@ def _simulate_progress(label, total_samples, inference_time, batch_size, realtim
             print(f"[{label}] 进度: {progress:.1f}% ({processed}/{total_samples}), 耗时: {target_elapsed:.2f}s")
 
 
-def _generate_report(report_path, title, sections):
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("=" * 60 + "\n")
-        f.write(f"{title}\n")
-        f.write("=" * 60 + "\n\n")
-        f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-        for section_title, items in sections:
-            f.write("=" * 60 + "\n")
-            f.write(f"{section_title}\n")
-            f.write("=" * 60 + "\n")
-            for key, value in items:
-                f.write(f"{key}: {value}\n")
-            f.write("\n")
-
-
-# ================================================================
-# 边侧推理模拟
-# ================================================================
-def simulate_edge_infer(config, task_id, step_prefix=""):
-    """模拟边侧推理日志输出，参数全部来自 display_config"""
-    dc = config['display_config']
-    realtime = dc.get('simulate_realtime', False)
+def _auto_derive(dc, config, has_transfer=True):
+    """从 display_config 的 3 个核心参数自动派生所有细节"""
+    total_time = dc.get('time', 10.0)
+    data_size_mb = dc.get('data_size_mb', 0)
     batch_size = config.get('batch_size', 128)
-    confidence_threshold = config.get('confidence_threshold', None)
-    model_type = config.get('model_type', 'unknown')
 
-    total_samples = dc.get('total_samples', 100000)
-    inference_time = dc.get('inference_time', 8.0)
-    throughput = dc.get('throughput', total_samples / inference_time if inference_time > 0 else 0)
-    accuracy = dc.get('accuracy', 97.28)
-    model_load_time = dc.get('model_load_time', 0.35)
-    warmup_time = dc.get('warmup_time', 0.29)
-    data_load_time = dc.get('data_load_time', 0.5)
-    high_conf_samples = dc.get('high_conf_samples', total_samples)
-    low_conf_samples = dc.get('low_conf_samples', 0)
-    high_conf_accuracy = dc.get('high_conf_accuracy', accuracy)
-    low_conf_accuracy = dc.get('low_conf_accuracy', 0.0)
+    total_samples = int(data_size_mb * 1000) if data_size_mb > 0 else 100000
+    total_samples = max(total_samples, 1000)
 
-    output_step = f"{step_prefix}edge_infer"
-
-    print(f"\n{'='*60}")
-    print(f"[边侧] 开始执行推理任务")
-    print(f"{'='*60}")
-    print(f"[配置] 模型路径: {config.get('model_path', 'N/A')}")
-    print(f"[配置] 模型类型: {model_type}")
-    if confidence_threshold is not None:
-        print(f"[配置] 置信度阈值: {confidence_threshold}")
+    if has_transfer and data_size_mb > 0:
+        bandwidth = config.get('simulate_bandwidth_mbps', 100)
+        transfer_time = round(data_size_mb / bandwidth, 2)
+        transfer_time = min(transfer_time, total_time * 0.4)
     else:
-        print(f"[配置] 置信度阈值: 未设置（纯边侧模式，不筛选低置信度样本）")
-    print(f"[配置] 计算设备: {config.get('device', 'cuda:0')}")
+        transfer_time = 0
 
-    print(f"[加载] 从 device_load 加载数据...")
-    _maybe_sleep(data_load_time, realtime)
-    print(f"[加载] 成功加载 {total_samples} 个样本")
-    print(f"[计时] 数据加载耗时: {data_load_time:.2f}s")
-
-    print(f"[模型] 正在加载边侧模型...")
-    _maybe_sleep(model_load_time, realtime)
-    print(f"[模型] 成功加载模型权重")
-
-    data_shape = dc.get('data_shape', f"({total_samples}, 2, 128)")
-    data_dtype = dc.get('data_dtype', 'complex64')
-    print(f"[边侧推理] 数据格式: shape={data_shape}, dtype={data_dtype}")
-
-    num_batches = (total_samples + batch_size - 1) // batch_size
-    print(f"[推理] 开始批量推理: {total_samples} 样本, {num_batches} 批次")
-
-    _maybe_sleep(warmup_time, realtime)
-    print(f"[推理] CUDA 热身完成 ({warmup_time:.2f}s)")
-
-    _simulate_progress("推理", total_samples, inference_time, batch_size, realtime)
-
-    print(f"[推理] 完成! 纯推理耗时: {inference_time:.2f}s, 吞吐量: {throughput:.1f} samples/s")
-    print(f"[结果] 边侧整体准确率: {accuracy:.2f}%")
-
-    if confidence_threshold is not None:
-        total = high_conf_samples + low_conf_samples
-        high_ratio = high_conf_samples / total * 100 if total > 0 else 100
-        low_ratio = low_conf_samples / total * 100 if total > 0 else 0
-        print(f"[筛选] 高置信度样本: {high_conf_samples} ({high_ratio:.1f}%)")
-        print(f"[筛选] 低置信度样本: {low_conf_samples} ({low_ratio:.1f}%)")
-        print(f"[结果] 高置信度准确率: {high_conf_accuracy:.2f}%")
-        print(f"[结果] 低置信度准确率: {low_conf_accuracy:.2f}%")
-    else:
-        low_conf_samples = 0
-        print(f"[信息] 纯边侧模式，跳过低置信度筛选")
-
-    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
-    os.makedirs(output_dir, exist_ok=True)
-
-    save_timing(output_dir, {
-        'data_load_time': data_load_time,
-        'transfer_time': 0,
-        'model_load_time': model_load_time,
-        'warmup_time': warmup_time,
-        'inference_time': inference_time,
-    })
-
-    print(f"[保存] 中间结果已保存到: {output_dir}")
-    print(f"[计时] 模型加载: {model_load_time:.2f}s, 热身: {warmup_time:.2f}s, 纯推理: {inference_time:.2f}s")
-
-    result_dir = f"{TASKS_ROOT}/{task_id}/result/{output_step}"
-    os.makedirs(result_dir, exist_ok=True)
-    report_path = os.path.join(result_dir, 'edge_report.txt')
-
-    report_sections = [
-        ('配置信息', [
-            ('模型类型', model_type),
-            ('批次大小', batch_size),
-        ]),
-        ('推理结果', [
-            ('总样本数', total_samples),
-            ('整体准确率', f"{accuracy:.2f}%"),
-            ('吞吐量', f"{throughput:.1f} samples/s"),
-        ]),
-        ('耗时信息', [
-            ('数据加载', f"{data_load_time:.2f}s"),
-            ('推理', f"{inference_time:.2f}s"),
-            ('模型加载+热身', f"{model_load_time + warmup_time:.2f}s"),
-        ]),
-    ]
-    if confidence_threshold is not None:
-        report_sections.insert(2, ('置信度分析', [
-            ('高置信度样本数', high_conf_samples),
-            ('高置信度准确率', f"{high_conf_accuracy:.2f}%"),
-            ('低置信度样本数', low_conf_samples),
-            ('低置信度准确率', f"{low_conf_accuracy:.2f}%"),
-        ]))
-    _generate_report(report_path, '边侧推理报告', report_sections)
-
-    print(f"[报告] 推理报告已保存到: {report_path}")
-    print(f"[完成] 边侧推理完成")
+    inference_time = max(total_time - transfer_time, 0.01)
+    model_load_time = round(random.uniform(0.3, 3.5), 2)
+    warmup_time = round(random.uniform(0.15, 0.6), 2)
+    throughput = total_samples / inference_time if inference_time > 0 else 0
 
     return {
-        'status': 'success',
         'total_samples': total_samples,
-        'accuracy': accuracy / 100.0,
-        'high_conf_samples': int(high_conf_samples),
-        'high_conf_accuracy': high_conf_accuracy / 100.0,
-        'low_conf_samples': int(low_conf_samples),
-        'low_conf_accuracy': low_conf_accuracy / 100.0,
-        'low_conf_ratio': low_conf_samples / total_samples * 100 if total_samples > 0 else 0,
-        'avg_confidence': dc.get('avg_confidence', 0.98),
-    }
-
-
-# ================================================================
-# 云侧直接推理模拟
-# ================================================================
-def simulate_cloud_direct_infer(config, task_id, step_prefix=""):
-    """模拟纯云推理日志输出"""
-    dc = config['display_config']
-    realtime = dc.get('simulate_realtime', False)
-    batch_size = config.get('batch_size', 128)
-    model_type = config.get('model_type', 'unknown')
-
-    total_samples = dc.get('total_samples', 100000)
-    inference_time = dc.get('inference_time', 26.29)
-    throughput = dc.get('throughput', total_samples / inference_time if inference_time > 0 else 0)
-    accuracy = dc.get('accuracy', 97.68)
-    model_load_time = dc.get('model_load_time', 3.60)
-    warmup_time = dc.get('warmup_time', 0.62)
-    data_load_time = dc.get('data_load_time', 0.5)
-
-    output_step = f"{step_prefix}cloud_direct_infer"
-
-    print(f"\n{'='*60}")
-    print(f"[云侧] 端→云 直接推理")
-    print(f"{'='*60}")
-
-    print(f"[加载] 从 device_load 加载全部数据...")
-    _maybe_sleep(data_load_time, realtime)
-    print(f"[加载] 成功加载 {total_samples} 个样本")
-    print(f"[计时] 数据加载耗时: {data_load_time:.2f}s")
-
-    print(f"[模型] 正在加载云侧模型...")
-    _maybe_sleep(model_load_time, realtime)
-    print(f"[模型] 成功加载模型权重")
-
-    data_shape = dc.get('data_shape', f"({total_samples}, 128)")
-    data_dtype = dc.get('data_dtype', 'complex64')
-    print(f"[云侧推理] 数据格式: shape={data_shape}, dtype={data_dtype}")
-
-    num_batches = (total_samples + batch_size - 1) // batch_size
-    print(f"[云侧推理] 处理 {total_samples} 个样本, {num_batches} 批次")
-
-    _maybe_sleep(warmup_time, realtime)
-    print(f"[云侧推理] CUDA 热身完成 ({warmup_time:.2f}s)")
-
-    _simulate_progress("云侧推理", total_samples, inference_time, batch_size, realtime)
-
-    print(f"[云侧推理] 完成! 纯推理耗时: {inference_time:.2f}s, 吞吐量: {throughput:.1f} samples/s")
-    print(f"[结果] 云侧直接推理准确率: {accuracy:.2f}%")
-    print(f"[计时] 模型加载: {model_load_time:.2f}s, 热身: {warmup_time:.2f}s, 纯推理: {inference_time:.2f}s")
-
-    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
-    os.makedirs(output_dir, exist_ok=True)
-
-    save_timing(output_dir, {
-        'data_load_time': data_load_time,
-        'transfer_time': 0,
+        'transfer_time': transfer_time,
+        'inference_time': inference_time,
         'model_load_time': model_load_time,
         'warmup_time': warmup_time,
-        'inference_time': inference_time,
-    })
-
-    result_dir = f"{TASKS_ROOT}/{task_id}/result/{output_step}"
-    os.makedirs(result_dir, exist_ok=True)
-    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧直接推理报告', [
-        ('配置信息', [
-            ('模型类型', model_type),
-            ('批次大小', batch_size),
-        ]),
-        ('推理结果', [
-            ('总样本数', total_samples),
-            ('整体准确率', f"{accuracy:.2f}%"),
-            ('吞吐量', f"{throughput:.1f} samples/s"),
-        ]),
-        ('耗时信息', [
-            ('数据加载', f"{data_load_time:.2f}s"),
-            ('推理', f"{inference_time:.2f}s"),
-            ('模型加载+热身', f"{model_load_time + warmup_time:.2f}s"),
-        ]),
-    ])
-
-    print(f"[完成] 云侧直接推理完成")
-
-    return {
-        'status': 'success',
-        'total_samples': total_samples,
-        'accuracy': accuracy / 100.0,
-        'avg_confidence': dc.get('avg_confidence', 0.98),
-    }
-
-
-# ================================================================
-# 云侧协同推理模拟
-# ================================================================
-def simulate_cloud_infer(config, task_id, step_prefix=""):
-    """模拟云边协同推理（云侧部分）日志输出"""
-    dc = config['display_config']
-    realtime = dc.get('simulate_realtime', False)
-    batch_size = config.get('batch_size', 128)
-    model_type = config.get('model_type', 'unknown')
-
-    low_conf_samples = dc.get('low_conf_samples', 11)
-    inference_time = dc.get('inference_time', 0.06)
-    throughput = dc.get('throughput', low_conf_samples / inference_time if inference_time > 0 else 0)
-    cloud_accuracy = dc.get('cloud_accuracy', 72.73)
-    model_load_time = dc.get('model_load_time', 2.53)
-    warmup_time = dc.get('warmup_time', 0.18)
-    data_load_time = dc.get('data_load_time', 0.1)
-
-    agree_count = dc.get('agree_count', 3)
-    agree_ratio = dc.get('agree_ratio', 27.3)
-    corrected_count = dc.get('corrected_count', 7)
-    edge_accuracy = dc.get('edge_accuracy', 97.28)
-    final_accuracy = dc.get('final_accuracy', 97.28)
-    accuracy_improvement = dc.get('accuracy_improvement', 0.01)
-
-    output_step = f"{step_prefix}cloud_infer"
-
-    print(f"\n{'='*60}")
-    print(f"[云侧] 端→边→云 协同推理（云侧部分）")
-    print(f"{'='*60}")
-
-    print(f"[加载] 从 edge_infer 加载低置信度样本...")
-    _maybe_sleep(data_load_time, realtime)
-    print(f"[加载] 成功加载 {low_conf_samples} 个低置信度样本")
-    print(f"[计时] 数据加载耗时: {data_load_time:.2f}s")
-
-    print(f"[模型] 正在加载云侧模型...")
-    _maybe_sleep(model_load_time, realtime)
-    print(f"[模型] 成功加载模型权重")
-
-    data_shape = dc.get('data_shape', f"({low_conf_samples}, 128)")
-    data_dtype = dc.get('data_dtype', 'complex64')
-    print(f"[云侧推理] 数据格式: shape={data_shape}, dtype={data_dtype}")
-
-    num_batches = max((low_conf_samples + batch_size - 1) // batch_size, 1)
-    print(f"[云侧推理] 处理 {low_conf_samples} 个样本, {num_batches} 批次")
-
-    _maybe_sleep(warmup_time, realtime)
-    print(f"[云侧推理] CUDA 热身完成 ({warmup_time:.2f}s)")
-
-    if inference_time > 0.5:
-        _simulate_progress("云侧推理", low_conf_samples, inference_time, batch_size, realtime)
-    else:
-        _maybe_sleep(inference_time, realtime)
-        print(f"[云侧推理] 进度: 100.0% ({low_conf_samples}/{low_conf_samples}), 耗时: {inference_time:.2f}s")
-
-    print(f"[云侧推理] 完成! 纯推理耗时: {inference_time:.2f}s, 吞吐量: {throughput:.1f} samples/s")
-    print(f"[结果] 云侧准确率: {cloud_accuracy:.2f}%")
-    print(f"[计时] 模型加载: {model_load_time:.2f}s, 热身: {warmup_time:.2f}s, 纯推理: {inference_time:.2f}s")
-
-    print(f"[对比] 边云预测一致: {agree_count} ({agree_ratio:.1f}%)")
-    print(f"[修正] 云侧修正样本数: {corrected_count}")
-
-    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
-    os.makedirs(output_dir, exist_ok=True)
-
-    save_timing(output_dir, {
-        'data_load_time': data_load_time,
-        'transfer_time': 0,
-        'model_load_time': model_load_time,
-        'warmup_time': warmup_time,
-        'inference_time': inference_time,
-    })
-
-    print(f"[最终] 边侧单独准确率: {edge_accuracy:.2f}%")
-    print(f"[最终] 边云协同准确率: {final_accuracy:.2f}%")
-    print(f"[最终] 准确率提升: {accuracy_improvement:+.2f}%")
-
-    result_dir = f"{TASKS_ROOT}/{task_id}/result/{output_step}"
-    os.makedirs(result_dir, exist_ok=True)
-
-    _generate_report(os.path.join(result_dir, 'cloud_report.txt'), '云侧推理报告', [
-        ('配置信息', [('模型类型', model_type)]),
-        ('推理结果', [
-            ('低置信度样本数', low_conf_samples),
-            ('云侧准确率', f"{cloud_accuracy:.2f}%"),
-        ]),
-        ('边云对比', [
-            ('预测一致样本数', f"{agree_count} ({agree_ratio:.1f}%)"),
-            ('云侧修正样本数', corrected_count),
-        ]),
-    ])
-
-    _generate_report(os.path.join(result_dir, 'final_report.txt'), '边云协同推理最终报告', [
-        ('准确率对比', [
-            ('边侧单独准确率', f"{edge_accuracy:.2f}%"),
-            ('边云协同准确率', f"{final_accuracy:.2f}%"),
-            ('准确率提升', f"{accuracy_improvement:+.2f}%"),
-        ]),
-    ])
-
-    print(f"[报告] 最终报告已保存")
-    print(f"[完成] 云侧推理完成")
-
-    return {
-        'status': 'success',
-        'cloud_samples': low_conf_samples,
-        'cloud_accuracy': cloud_accuracy / 100.0,
-        'agree_ratio': float(agree_ratio),
-        'num_corrected': int(corrected_count),
+        'throughput': throughput,
+        'batch_size': batch_size,
+        'total_time': total_time,
     }
 
 
@@ -441,74 +92,220 @@ def simulate_cloud_infer(config, task_id, step_prefix=""):
 # 端侧数据加载模拟
 # ================================================================
 def simulate_device_load(config, task_id, step_prefix=""):
-    """模拟端侧数据加载日志输出，只读取文件大小不真正加载数据"""
     dc = config['display_config']
     realtime = dc.get('simulate_realtime', False)
-
+    data_size_mb = dc.get('data_size_mb', 0)
+    total_time = dc.get('time', 5.0)
+    batch_size = config.get('batch_size', 128)
     data_path = config.get('data_path', '')
     dataset_type = config.get('dataset_type', 'unknown')
-    batch_size = config.get('batch_size', 128)
 
-    total_samples = dc.get('total_samples', 100000)
-    data_load_time = dc.get('data_load_time', 5.0)
-    preprocess_time = dc.get('preprocess_time', 0.01)
-    save_time = dc.get('save_time', 2.0)
-    data_shape = dc.get('data_shape', f"({total_samples}, 2, 128)")
-    data_dtype = dc.get('data_dtype', 'float32')
-    num_files = dc.get('num_files', None)
+    if data_size_mb <= 0 and data_path and os.path.exists(data_path):
+        if os.path.isfile(data_path):
+            data_size_mb = os.path.getsize(data_path) / (1024 * 1024)
+        else:
+            total = sum(os.path.getsize(os.path.join(data_path, f))
+                        for f in os.listdir(data_path)
+                        if os.path.isfile(os.path.join(data_path, f)))
+            data_size_mb = total / (1024 * 1024)
+
+    total_samples = int(data_size_mb * 1000) if data_size_mb > 0 else 100000
+    total_samples = max(total_samples, 1000)
 
     output_step = f"{step_prefix}device_load"
 
     print(f"\n{'='*60}")
-    print(f"[端侧] 开始执行数据加载任务")
+    print(f"[端侧] 数据加载")
     print(f"{'='*60}")
-    print(f"[配置] 数据路径: {data_path}")
-    print(f"[配置] 数据集类型: {dataset_type}")
-    print(f"[配置] 批次大小: {batch_size}")
-
-    data_size_mb = _get_data_size_mb(data_path)
     if data_size_mb > 0:
-        print(f"[信息] 数据文件大小: {data_size_mb:.1f} MB")
-
-    if num_files is not None and num_files > 1:
-        print(f"[加载] 发现 {num_files} 个文件（目录模式）")
-        _maybe_sleep(data_load_time, realtime)
-        print(f"[加载] 已加载 {num_files}/{num_files} 个文件")
-    else:
-        print(f"[加载] 正在加载数据文件...")
-        _maybe_sleep(data_load_time, realtime)
-
+        print(f"[信息] 数据量: {data_size_mb:.1f} MB")
+    print(f"[加载] 正在加载数据...")
+    _maybe_sleep(total_time * 0.7, realtime)
     print(f"[加载] 成功加载 {total_samples} 个样本")
-    print(f"[加载] 数据形状: X={data_shape}, dtype={data_dtype}")
-    print(f"[计时] 数据加载耗时: {data_load_time:.2f}s")
-
-    _maybe_sleep(preprocess_time, realtime)
-    print(f"[计时] 数据预处理耗时: {preprocess_time:.2f}s")
+    _maybe_sleep(total_time * 0.3, realtime)
 
     output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, 'data_batch.pkl')
 
-    _maybe_sleep(save_time, realtime)
-    print(f"[保存] 数据已保存到: {output_path}")
-    print(f"[计时] 数据保存耗时: {save_time:.2f}s")
+    save_timing(output_dir, {'step_time': total_time})
 
-    save_timing(output_dir, {
-        'data_load_time': data_load_time,
-        'preprocess_time': preprocess_time,
-        'data_save_time': save_time,
-    })
+    print(f"[计时] 耗时: {total_time:.2f}s")
+    print(f"[完成] 端侧数据加载完成")
 
     num_batches = (total_samples + batch_size - 1) // batch_size
-
-    print(f"[完成] 端侧数据加载完成")
-    print(f"[统计] 样本数: {total_samples}")
-    print(f"[统计] 批次数: {num_batches}")
-
     return {
         'status': 'success',
         'num_samples': total_samples,
         'num_batches': num_batches,
         'dataset_type': dataset_type,
         'output_path': output_path,
+    }
+
+
+# ================================================================
+# 边侧推理模拟
+# ================================================================
+def simulate_edge_infer(config, task_id, step_prefix=""):
+    dc = config['display_config']
+    realtime = dc.get('simulate_realtime', False)
+    accuracy = dc.get('accuracy', 97.28)
+    confidence_threshold = config.get('confidence_threshold', None)
+    model_type = config.get('model_type', 'unknown')
+
+    d = _auto_derive(dc, config, has_transfer=True)
+    output_step = f"{step_prefix}edge_infer"
+
+    print(f"\n{'='*60}")
+    print(f"[边侧] 推理任务")
+    print(f"{'='*60}")
+    data_size_mb = dc.get('data_size_mb', 0)
+    if data_size_mb > 0:
+        print(f"[配置] 数据量: {data_size_mb:.1f} MB | 设备: {config.get('device', 'cuda:0')}")
+    else:
+        print(f"[配置] 设备: {config.get('device', 'cuda:0')}")
+
+    if d['transfer_time'] > 0:
+        print(f"[传输] 端侧→边侧 数据传输中...")
+        _maybe_sleep(d['transfer_time'], realtime)
+        print(f"[传输] 传输完成")
+
+    print(f"[推理] 开始推理 ({d['total_samples']} 样本)...")
+    _maybe_sleep(d['warmup_time'], realtime)
+
+    _simulate_progress("推理", d['total_samples'], d['inference_time'], d['batch_size'], realtime)
+
+    print(f"[推理] 完成! 吞吐量: {d['throughput']:.1f} samples/s")
+    print(f"[结果] 准确率: {accuracy:.2f}%")
+
+    if confidence_threshold is not None:
+        low_ratio = random.uniform(0.005, 0.02)
+        low_conf = max(int(d['total_samples'] * low_ratio), 1)
+        high_conf = d['total_samples'] - low_conf
+        print(f"[筛选] 高置信度: {high_conf} | 低置信度: {low_conf}")
+    else:
+        low_conf = 0
+        high_conf = d['total_samples']
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    save_timing(output_dir, {'step_time': d['total_time']})
+
+    print(f"[计时] 传输+推理: {d['total_time']:.2f}s")
+    print(f"[完成] 边侧推理完成")
+
+    return {
+        'status': 'success',
+        'total_samples': d['total_samples'],
+        'accuracy': accuracy / 100.0,
+        'high_conf_samples': int(high_conf),
+        'high_conf_accuracy': accuracy / 100.0,
+        'low_conf_samples': int(low_conf),
+        'low_conf_accuracy': random.uniform(0.1, 0.3),
+        'low_conf_ratio': low_conf / d['total_samples'] * 100,
+        'avg_confidence': 0.98,
+    }
+
+
+# ================================================================
+# 云侧直接推理模拟
+# ================================================================
+def simulate_cloud_direct_infer(config, task_id, step_prefix=""):
+    dc = config['display_config']
+    realtime = dc.get('simulate_realtime', False)
+    accuracy = dc.get('accuracy', 97.68)
+    model_type = config.get('model_type', 'unknown')
+
+    d = _auto_derive(dc, config, has_transfer=True)
+    output_step = f"{step_prefix}cloud_direct_infer"
+
+    print(f"\n{'='*60}")
+    print(f"[云侧] 直接推理")
+    print(f"{'='*60}")
+    data_size_mb = dc.get('data_size_mb', 0)
+    if data_size_mb > 0:
+        print(f"[配置] 数据量: {data_size_mb:.1f} MB | 设备: {config.get('device', 'cuda:0')}")
+    else:
+        print(f"[配置] 设备: {config.get('device', 'cuda:0')}")
+
+    if d['transfer_time'] > 0:
+        print(f"[传输] 端侧→云侧 数据传输中...")
+        _maybe_sleep(d['transfer_time'], realtime)
+        print(f"[传输] 传输完成")
+
+    print(f"[推理] 开始推理 ({d['total_samples']} 样本)...")
+    _maybe_sleep(d['warmup_time'], realtime)
+
+    _simulate_progress("云侧推理", d['total_samples'], d['inference_time'], d['batch_size'], realtime)
+
+    print(f"[推理] 完成! 吞吐量: {d['throughput']:.1f} samples/s")
+    print(f"[结果] 准确率: {accuracy:.2f}%")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    save_timing(output_dir, {'step_time': d['total_time']})
+
+    print(f"[计时] 传输+推理: {d['total_time']:.2f}s")
+    print(f"[完成] 云侧直接推理完成")
+
+    return {
+        'status': 'success',
+        'total_samples': d['total_samples'],
+        'accuracy': accuracy / 100.0,
+        'avg_confidence': 0.98,
+    }
+
+
+# ================================================================
+# 云侧协同推理模拟
+# ================================================================
+def simulate_cloud_infer(config, task_id, step_prefix=""):
+    dc = config['display_config']
+    realtime = dc.get('simulate_realtime', False)
+    accuracy = dc.get('accuracy', 97.28)
+    model_type = config.get('model_type', 'unknown')
+
+    d = _auto_derive(dc, config, has_transfer=True)
+    low_conf_samples = max(int(d['total_samples'] * random.uniform(0.005, 0.02)), 1)
+    output_step = f"{step_prefix}cloud_infer"
+
+    print(f"\n{'='*60}")
+    print(f"[云侧] 协同推理（处理低置信度样本）")
+    print(f"{'='*60}")
+
+    if d['transfer_time'] > 0:
+        print(f"[传输] 边侧→云侧 低置信度样本传输中...")
+        _maybe_sleep(d['transfer_time'], realtime)
+        print(f"[传输] 传输完成")
+
+    print(f"[推理] 处理 {low_conf_samples} 个低置信度样本...")
+    _maybe_sleep(d['warmup_time'], realtime)
+
+    infer_time = d['inference_time']
+    if infer_time > 0.5:
+        _simulate_progress("云侧推理", low_conf_samples, infer_time, d['batch_size'], realtime)
+    else:
+        _maybe_sleep(infer_time, realtime)
+        print(f"[云侧推理] 进度: 100.0% ({low_conf_samples}/{low_conf_samples}), 耗时: {infer_time:.2f}s")
+
+    cloud_accuracy = round(random.uniform(60, 80), 2)
+    print(f"[推理] 完成!")
+    print(f"[结果] 准确率: {accuracy:.2f}%")
+
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_step}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    save_timing(output_dir, {'step_time': d['total_time']})
+
+    print(f"[计时] 传输+推理: {d['total_time']:.2f}s")
+    print(f"[完成] 云侧协同推理完成")
+
+    return {
+        'status': 'success',
+        'cloud_samples': low_conf_samples,
+        'cloud_accuracy': cloud_accuracy / 100.0,
+        'agree_ratio': random.uniform(20, 40),
+        'num_corrected': int(low_conf_samples * random.uniform(0.5, 0.8)),
     }

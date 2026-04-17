@@ -14,30 +14,10 @@
     "_注释_num_batches":  "限制总样本数=num_batches×batch_size，null=不限制",
     "num_batches": null,
 
-    "_注释_display_config": "模拟显示配置，存在时跳过真实数据加载",
+    "_注释_display_config": "模拟配置。存在时跳过真实加载。data_size_mb=数据量(MB), time=耗时(秒)",
     "display_config": {
-        "_注释_simulate_realtime": "true=用time.sleep模拟真实加载耗时，false=立即打印",
         "simulate_realtime": false,
-
-        "_注释_total_samples": "模拟显示的总样本数",
-        "total_samples": 27000,
-
-        "_注释_data_load_time": "模拟显示的数据加载耗时(秒)",
-        "data_load_time": 3.15,
-
-        "_注释_preprocess_time": "模拟显示的数据预处理耗时(秒)",
-        "preprocess_time": 0.01,
-
-        "_注释_save_time": "模拟显示的数据保存耗时(秒)",
-        "save_time": 1.20,
-
-        "_注释_data_shape": "模拟显示的数据形状字符串",
-        "data_shape": "(27000, 2, 128)",
-
-        "_注释_data_dtype": "模拟显示的数据类型",
-        "data_dtype": "float32",
-
-        "_注释_num_files": "模拟显示的文件数(目录模式)，null=单文件模式",
-        "num_files": 10
+        "data_size_mb": 85.0,
+        "time": 1.80
     }
 }

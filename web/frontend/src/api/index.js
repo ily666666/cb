@@ -67,11 +67,25 @@ export const lightweightApi = {
 
 export const distillationApi = {
   tasks: () => api.get('/distillation/tasks'),
-  start: (taskId) => api.post(`/distillation/${taskId}/start`),
+  start: (taskId, fastMode, accuracy) => {
+    const params = {}
+    if (fastMode) params.fast_mode = true
+    if (accuracy != null) params.accuracy = accuracy
+    return api.post(`/distillation/${taskId}/start`, null, { params })
+  },
   status: (taskId) => api.get(`/distillation/${taskId}/status`),
   stop: (taskId) => api.post(`/distillation/${taskId}/stop`),
   history: (taskId) => api.get(`/distillation/${taskId}/history`),
   models: (taskId) => api.get(`/distillation/${taskId}/models`),
+}
+
+export const compareApi = {
+  tasks: () => api.get('/compare/tasks'),
+  updateLabel: (taskId, label) => api.put(`/compare/tasks/${taskId}/label`, { label }),
+  updateStepConfig: (taskId, stepName, config) => api.put(`/compare/tasks/${taskId}/steps/${stepName}/config`, config),
+  clone: (sourceTaskId, newTaskId, label) => api.post('/compare/clone', { source_task_id: sourceTaskId, new_task_id: newTaskId, label }),
+  deleteTask: (taskId) => api.delete(`/compare/tasks/${taskId}`),
+  results: (taskIds) => api.get('/compare/results', { params: { task_ids: taskIds.join(',') } }),
 }
 
 export const prunePow2Api = {

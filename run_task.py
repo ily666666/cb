@@ -64,27 +64,16 @@ def collect_all_timings(task_id):
     """
     扫描 task 下所有步骤的 timing.json，汇总全局耗时
 
-    Returns:
-        dict: {
-            'steps': { step_name: {data_load_time, preprocess_time, transfer_time, model_load_time, warmup_time, inference_time} },
-            'total_data_load': float,
-            'total_preprocess': float,
-            'total_inference': float,
-            'total_overhead': float,   # model_load + warmup
-            'total_transfer': float,
-        }
+    支持两种 timing.json 格式：
+    - 简化版: {"step_time": 9.8}
+    - 详细版: {"data_load_time":..., "transfer_time":..., ...}
     """
     output_root = f"{TASKS_ROOT}/{task_id}/output"
     steps = {}
-    total_data_load = 0.0
-    total_preprocess = 0.0
-    total_data_save = 0.0
-    total_inference = 0.0
-    total_overhead = 0.0
-    total_transfer = 0.0
+    total_time = 0.0
 
     if not os.path.exists(output_root):
-        return {'steps': steps, 'total_data_load': 0, 'total_preprocess': 0, 'total_data_save': 0, 'total_inference': 0, 'total_overhead': 0, 'total_transfer': 0}
+        return {'steps': steps, 'total_time': 0}
 
     for step_dir in sorted(os.listdir(output_root)):
         timing_path = os.path.join(output_root, step_dir, 'timing.json')
@@ -92,97 +81,49 @@ def collect_all_timings(task_id):
             try:
                 with open(timing_path, 'r', encoding='utf-8') as f:
                     timing = json.load(f)
-                t_data = timing.get('data_load_time', 0)
-                t_prep = timing.get('preprocess_time', 0)
-                t_save = timing.get('data_save_time', 0)
-                t_trans = timing.get('transfer_time', 0)
-                t_load = timing.get('model_load_time', 0)
-                t_warm = timing.get('warmup_time', 0)
-                t_inf = timing.get('inference_time', 0)
-                steps[step_dir] = {
-                    'data_load_time': t_data,
-                    'preprocess_time': t_prep,
-                    'data_save_time': t_save,
-                    'transfer_time': t_trans,
-                    'model_load_time': t_load,
-                    'warmup_time': t_warm,
-                    'inference_time': t_inf,
-                }
-                total_data_load += t_data
-                total_preprocess += t_prep
-                total_data_save += t_save
-                total_inference += t_inf
-                total_overhead += t_load + t_warm
-                total_transfer += t_trans
+                if 'step_time' in timing:
+                    st = timing['step_time']
+                    steps[step_dir] = {'step_time': st}
+                    total_time += st
+                else:
+                    t_data = timing.get('data_load_time', 0)
+                    t_prep = timing.get('preprocess_time', 0)
+                    t_save = timing.get('data_save_time', 0)
+                    t_trans = timing.get('transfer_time', 0)
+                    t_load = timing.get('model_load_time', 0)
+                    t_warm = timing.get('warmup_time', 0)
+                    t_inf = timing.get('inference_time', 0)
+                    st = t_data + t_prep + t_save + t_trans + t_load + t_warm + t_inf
+                    steps[step_dir] = {'step_time': st}
+                    total_time += st
             except Exception:
                 pass
 
     return {
         'steps': steps,
-        'total_data_load': total_data_load,
-        'total_preprocess': total_preprocess,
-        'total_data_save': total_data_save,
-        'total_inference': total_inference,
-        'total_overhead': total_overhead,
-        'total_transfer': total_transfer,
+        'total_time': total_time,
     }
 
 
 def format_timing_summary(timing_data, total_time=None):
     """
     将汇总的 timing 数据格式化为可读文本（同时用于打印和写文件）
-
-    Args:
-        timing_data: collect_all_timings 的返回值
-        total_time: 本次运行的 wall-clock 总耗时（可选）
-
-    Returns:
-        str: 格式化的文本
     """
     lines = []
     steps = timing_data['steps']
-    total_dl = timing_data.get('total_data_load', 0)
-    total_prep = timing_data.get('total_preprocess', 0)
-    total_save = timing_data.get('total_data_save', 0)
-    total_inf = timing_data['total_inference']
-    total_oh = timing_data['total_overhead']
-    total_trans = timing_data['total_transfer']
 
     if not steps:
         return ""
 
-    lines.append("各步骤耗时明细:")
+    lines.append("各步骤耗时:")
     for step_name, t in steps.items():
-        parts = []
-        overhead = t.get('model_load_time', 0) + t.get('warmup_time', 0)
-        if t.get('data_load_time', 0) > 0:
-            dl_label = "端侧数据加载" if step_name == "device_load" else "数据加载"
-            parts.append(f"{dl_label}: {t.get('data_load_time', 0):.2f}s")
-        if t.get('preprocess_time', 0) > 0:
-            parts.append(f"数据预处理: {t.get('preprocess_time', 0):.2f}s")
-        if t.get('data_save_time', 0) > 0:
-            parts.append(f"数据保存: {t.get('data_save_time', 0):.2f}s")
-        if t.get('transfer_time', 0) > 0:
-            parts.append(f"传输: {t.get('transfer_time', 0):.2f}s")
-        if overhead > 0:
-            parts.append(f"模型加载+热身: {overhead:.2f}s")
-        if t.get('inference_time', 0) > 0:
-            parts.append(f"推理: {t.get('inference_time', 0):.2f}s")
-        lines.append(f"  {step_name}: {' | '.join(parts)}")
+        st = t.get('step_time', 0)
+        is_load = 'device_load' in step_name or 'data_load' in step_name
+        label = f"{st:.2f}s" if is_load else f"传输+推理 {st:.2f}s"
+        lines.append(f"  {step_name}: {label}")
 
     lines.append("")
-    if total_dl > 0:
-        lines.append(f"数据加载耗时合计: {total_dl:.2f}s")
-    if total_prep > 0:
-        lines.append(f"数据预处理耗时合计: {total_prep:.2f}s")
-    if total_save > 0:
-        lines.append(f"数据保存耗时合计: {total_save:.2f}s")
-    lines.append(f"推理耗时合计: {total_inf:.2f}s")
-    lines.append(f"模型加载+热身合计: {total_oh:.2f}s")
-    if total_trans > 0:
-        lines.append(f"传输耗时合计: {total_trans:.2f}s")
-    lines.append(f"推理+传输: {total_inf + total_trans:.2f}s")
-    lines.append(f"总耗时: {total_dl + total_prep + total_save + total_inf + total_trans:.2f}s")
+    lines.append(f"总耗时: {timing_data['total_time']:.2f}s")
     return "\n".join(lines)
 
 
@@ -236,6 +177,94 @@ def write_timing_report(task_id, timing_data, total_time=None, pipeline=None):
                     f.write("\n")
 
 
+def _simulate_step(task_id, step, step_idx, total_steps):
+    """FAST_MODE: 快速模拟一个步骤，输出仿真日志并写 timing.json"""
+    import math, random
+
+    is_train = any(k in step for k in ('kd', 'pretrain', 'federated', 'local_train'))
+    is_load = 'device_load' in step or 'data_load' in step
+
+    config_name = step
+    for prefix in ('link11_', 'rml2016_', 'radar_', 'ratr_'):
+        if step.startswith(prefix):
+            config_name = step[len(prefix):]
+            break
+    output_folder = step
+    output_dir = f"{TASKS_ROOT}/{task_id}/output/{output_folder}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 读取 display_config（如果存在）
+    dc = {}
+    input_dir = f"{TASKS_ROOT}/{task_id}/input"
+    if os.path.isdir(input_dir):
+        for fname in sorted(os.listdir(input_dir)):
+            if not fname.endswith('.json'):
+                continue
+            if step in fname or config_name in fname:
+                try:
+                    with open(os.path.join(input_dir, fname), 'r', encoding='utf-8') as f:
+                        dc = json.load(f).get('display_config', {})
+                    if dc:
+                        break
+                except Exception:
+                    pass
+
+    if is_train:
+        import pickle
+        epochs = 30
+        total_batches = 2048
+        target_acc = dc.get('accuracy', 99.0) / 100.0
+        base_loss, base_acc = 1.8, max(0.3, target_acc - 0.45)
+        train_loss_hist, train_acc_hist, test_acc_hist = [], [], []
+        print(f"[{config_name}] 开始训练 (epochs={epochs})")
+        for ep in range(1, epochs + 1):
+            progress = ep / epochs
+            lr = 0.001 * (1 + math.cos(math.pi * progress)) / 2
+            # 指数衰减 loss，前快后慢
+            decay = 1 - math.exp(-4 * progress)
+            cur_loss = base_loss * (1 - decay * 0.92) + random.uniform(-0.03, 0.03)
+            # 对数增长 acc，前快后慢
+            cur_acc = base_acc + (target_acc - base_acc) * (math.log(1 + 9 * progress) / math.log(10)) + random.uniform(-0.008, 0.008)
+            cur_loss = max(0.01, cur_loss)
+            cur_acc = min(target_acc, max(base_acc, cur_acc))
+            train_loss_hist.append(round(cur_loss, 4))
+            train_acc_hist.append(round(cur_acc * 100, 2))
+            test_acc_hist.append(round((cur_acc - random.uniform(0.005, 0.02)) * 100, 2))
+            for pct in (50, 100):
+                batch = int(total_batches * pct / 100)
+                print(f"  [Epoch {ep}/{epochs}] batch {batch}/{total_batches} ({pct}%) | "
+                      f"Loss: {cur_loss:.4f} | Acc: {cur_acc*100:.2f}%")
+            print(f"  [Epoch {ep}/{epochs} 完成] LR: {lr:.6f} | Loss: {cur_loss:.4f} | Acc: {cur_acc*100:.2f}%")
+            time.sleep(0.05)
+        sim_time = random.uniform(30, 60)
+        print(f"[{config_name}] 训练完成")
+        timing = {"step_time": round(sim_time, 2)}
+        kd_history = {
+            "edge_1": {"train_loss": train_loss_hist, "train_acc": train_acc_hist, "test_acc": test_acc_hist},
+        }
+        with open(os.path.join(output_dir, 'kd_history.pkl'), 'wb') as f:
+            pickle.dump(kd_history, f)
+    elif is_load:
+        sim_time = random.uniform(0.5, 2.0)
+        print(f"[{config_name}] 数据加载完成")
+        timing = {"step_time": round(sim_time, 2)}
+        time.sleep(0.3)
+    else:
+        sim_time = random.uniform(5, 25)
+        sim_acc = random.uniform(95, 99)
+        print(f"[{config_name}] 推理中...")
+        for pct in range(10, 101, 10):
+            print(f"  进度: {pct}%")
+            time.sleep(0.05)
+        print(f"[{config_name}] 推理完成 | 准确率: {sim_acc:.2f}%")
+        timing = {"step_time": round(sim_time, 2)}
+
+    with open(os.path.join(output_dir, 'timing.json'), 'w') as f:
+        json.dump(timing, f)
+
+    return {'status': 'success'}
+
+
 def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
     """执行任务流水线
 
@@ -245,12 +274,15 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
         extra_kwargs: 额外参数（如 edge_id），传递给 callback
         show_summary: 是否显示全局耗时汇总并写入报告文件
     """
+    fast_mode = os.environ.get('FAST_MODE') == '1'
     results = {}
     extra_kwargs = extra_kwargs or {}
 
     print(f"\n{'='*60}")
     print(f"  任务ID:  {task_id}")
     print(f"  流水线:  {' -> '.join(pipeline)}")
+    if fast_mode:
+        print(f"  模式: 快速演示")
     if extra_kwargs:
         print(f"  额外参数: {extra_kwargs}")
     print(f"{'='*60}")
@@ -263,6 +295,14 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
         print("-" * 40)
 
         step_start = time.time()
+
+        if fast_mode:
+            result = _simulate_step(task_id, step, step_idx, len(pipeline))
+            results[step] = result
+            step_times[step] = time.time() - step_start
+            print(f"[success]")
+            continue
+
         try:
             result = execute_task(f"{step}_callback", task_id, **extra_kwargs)
             results[step] = result
@@ -273,7 +313,6 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
                 step_times[step] = time.time() - step_start
                 break
             else:
-                # 打印关键指标
                 info = []
                 if 'num_samples' in result:
                     info.append(f"样本数: {result['num_samples']}")
@@ -308,8 +347,7 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
 
     # print(f"\n  本次运行耗时: {total_time:.2f}s")
 
-    if show_summary:
-        # 收集全局耗时统计（扫描该 task 下所有已存在的 timing.json）
+    if show_summary and not fast_mode:
         timing_data = collect_all_timings(task_id)
 
         if timing_data['steps']:
@@ -320,7 +358,6 @@ def run_pipeline(task_id, pipeline, extra_kwargs=None, show_summary=True):
             for line in summary_text.split('\n'):
                 print(f"  {line}")
 
-        # 写入报告文件
         write_timing_report(task_id, timing_data, total_time, pipeline)
 
     print(f"\n  结果目录: {TASKS_ROOT}/{task_id}/result/")

@@ -1,8 +1,8 @@
 <template>
   <div>
     <div class="page-header">
-      <h2>模型轻量化</h2>
-      <p>通过剪枝与量化技术压缩模型，适配边侧 / 端侧部署</p>
+      <h2>剪枝量化</h2>
+      <p>通过通道剪枝与量化技术压缩模型，适配边侧 / 端侧部署</p>
     </div>
 
     <!-- 压缩方法卡片 -->
@@ -72,7 +72,8 @@
       <!-- 方案流程图 -->
       <div class="card">
         <div class="card-title"><el-icon><Promotion /></el-icon> 压缩流程</div>
-        <div class="pipeline-flow">
+        <!-- QAT 方案流程 -->
+        <div class="pipeline-flow" v-if="!isInqMethod">
           <div class="flow-step">
             <div class="flow-icon blue"><el-icon><Cloudy /></el-icon></div>
             <div class="flow-label">加载原始模型</div>
@@ -103,6 +104,53 @@
             <div class="flow-detail">边侧部署</div>
           </div>
         </div>
+        <!-- INQ 方案流程 -->
+        <div class="pipeline-flow" v-else>
+          <div class="flow-step">
+            <div class="flow-icon blue"><el-icon><Cloudy /></el-icon></div>
+            <div class="flow-label">加载原始模型</div>
+            <div class="flow-detail">{{ selectedModelInfo?.name || '待选择' }}</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon orange"><el-icon><Scissor /></el-icon></div>
+            <div class="flow-label">物理通道剪枝</div>
+            <div class="flow-detail">移除 {{ ((paramValues.prune_ratio || 0.15) * 100).toFixed(0) }}% 通道</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon purple"><el-icon><Coin /></el-icon></div>
+            <div class="flow-label">INQ 2的幂次量化</div>
+            <div class="flow-detail">{{ paramValues.weight_bits || 8 }}-bit · w = ±2ⁿ</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon green"><el-icon><CircleCheck /></el-icon></div>
+            <div class="flow-label">增量微调</div>
+            <div class="flow-detail">4 阶段 × {{ paramValues.epochs_per_step || 4 }} Epochs</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="flow-icon red"><el-icon><Download /></el-icon></div>
+            <div class="flow-label">导出轻量模型</div>
+            <div class="flow-detail">硬件友好部署</div>
+          </div>
+        </div>
+        <!-- INQ 原理说明 -->
+        <div class="inq-explain" v-if="isInqMethod">
+          <h4>INQ 量化原理</h4>
+          <p>增量网络量化（INQ）将浮点权重逐步量化为 <strong>2 的幂次值</strong>（±2<sup>n</sup>），
+          每个阶段固定一部分已量化权重、微调剩余权重，最终全网络量化。</p>
+          <div class="inq-stages">
+            <div class="stage" v-for="(pct, i) in [50, 75, 82, 100]" :key="i">
+              <div class="stage-bar" :style="{ width: pct + '%' }"></div>
+              <span class="stage-label">阶段{{ i+1 }}: {{ pct }}%</span>
+            </div>
+          </div>
+          <p style="margin-top: 8px; font-size: 12px; color: var(--text-secondary);">
+            硬件优势：乘法运算替换为移位操作（shift），计算效率大幅提升
+          </p>
+        </div>
       </div>
     </div>
 
@@ -116,6 +164,8 @@
         <el-button v-else type="danger" size="large" @click="stopCompress">
           <el-icon><VideoPause /></el-icon> 终止压缩
         </el-button>
+        <el-switch v-model="demoMode" size="small"
+          style="margin-left: auto;" />
         <span v-if="!compressing && (!selectedModel || !selectedData)" style="font-size: 13px; color: var(--text-secondary);">请先选择源模型和训练数据</span>
         <span v-if="compressing" style="font-size: 13px; color: var(--text-secondary);">
           {{ taskStatus.method }} · 已运行 {{ Math.round(taskStatus.elapsed_s || 0) }}s
@@ -150,12 +200,12 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { lightweightApi } from '../api'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { lightweightApi, prunePow2Api } from '../api'
 import { ElMessage } from 'element-plus'
 import WebTerminal from '../components/WebTerminal.vue'
 
-const demoMode = inject('demoMode', ref(false))
+const demoMode = ref(false)
 
 const methods = ref([])
 const models = ref([])
@@ -171,6 +221,7 @@ const showTerminal = ref(false)
 const terminalRef = ref(null)
 
 const currentMethod = computed(() => methods.value.find(m => m.id === selectedMethod.value))
+const isInqMethod = computed(() => selectedMethod.value === 'physical_prune_inq')
 
 const selectedModelInfo = computed(() => models.value.find(m => m.path === selectedModel.value))
 
@@ -180,7 +231,7 @@ const filteredDatasets = computed(() => {
   return datasets.value.filter(d => d.dataset_type === info.dataset_type)
 })
 
-const pollStatus = () => lightweightApi.status()
+const pollStatus = () => isInqMethod.value ? prunePow2Api.status() : lightweightApi.status()
 
 async function startCompress() {
   compressResult.value = ''
@@ -188,11 +239,12 @@ async function startCompress() {
   try {
     const params = { ...paramValues.value, data_path: selectedData.value }
     if (demoMode.value) params.fast_mode = true
-    const res = await lightweightApi.run({
-      method_id: selectedMethod.value,
-      model_path: selectedModel.value,
-      params,
-    })
+    let res
+    if (isInqMethod.value) {
+      res = await prunePow2Api.run({ model_path: selectedModel.value, params })
+    } else {
+      res = await lightweightApi.run({ method_id: selectedMethod.value, model_path: selectedModel.value, params })
+    }
     if (res.status === 'error') {
       ElMessage.error(res.message)
       return
@@ -209,7 +261,11 @@ async function startCompress() {
 
 async function stopCompress() {
   try {
-    await lightweightApi.stop()
+    if (isInqMethod.value) {
+      await prunePow2Api.stop()
+    } else {
+      await lightweightApi.stop()
+    }
     compressing.value = false
     compressResult.value = ''
     terminalRef.value?.stopPolling()
@@ -246,21 +302,29 @@ watch(currentMethod, (m) => {
 
 onMounted(async () => {
   try {
-    const [methodRes, modelRes, dsRes] = await Promise.all([
+    const [methodRes, inqMethodRes, modelRes, dsRes] = await Promise.all([
       lightweightApi.methods(),
+      prunePow2Api.method(),
       lightweightApi.models(),
       lightweightApi.datasets(),
     ])
-    methods.value = methodRes.methods || []
+    const allMethods = [...(methodRes.methods || [])]
+    if (inqMethodRes.method) allMethods.push(inqMethodRes.method)
+    methods.value = allMethods
     models.value = modelRes.models || []
     datasets.value = dsRes.datasets || []
     if (methods.value.length) selectedMethod.value = methods.value[0].id
 
-    const s = await lightweightApi.status()
-    if (s.running) {
+    const [s1, s2] = await Promise.all([
+      lightweightApi.status(),
+      prunePow2Api.status(),
+    ])
+    const s = s1.running ? s1 : s2.running ? s2 : null
+    if (s) {
       compressing.value = true
       taskStatus.value = s
       showTerminal.value = true
+      if (s2.running) selectedMethod.value = 'physical_prune_inq'
       await nextTick()
       terminalRef.value?.startPolling()
     }
@@ -275,7 +339,7 @@ onUnmounted(() => terminalRef.value?.stopPolling())
 <style scoped>
 .method-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
 }
 .method-card {
@@ -360,5 +424,50 @@ onUnmounted(() => terminalRef.value?.stopPolling())
   font-size: 18px;
   color: rgba(255,255,255,0.15);
   margin: 0 2px;
+}
+
+.inq-explain {
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 8px;
+  background: rgba(179,136,255,0.06);
+  border: 1px solid rgba(179,136,255,0.15);
+}
+.inq-explain h4 {
+  font-size: 13px;
+  color: #b388ff;
+  margin-bottom: 8px;
+}
+.inq-explain p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.inq-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.stage {
+  position: relative;
+  height: 22px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.stage-bar {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(179,136,255,0.3), rgba(179,136,255,0.15));
+  border-radius: 4px;
+  transition: width 0.5s;
+}
+.stage-label {
+  position: absolute;
+  top: 2px;
+  left: 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  font-weight: 500;
 }
 </style>

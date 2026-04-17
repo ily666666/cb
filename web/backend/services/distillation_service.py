@@ -84,9 +84,32 @@ def get_train_tasks() -> List[Dict]:
     return results
 
 
-def start_distillation(task_id: str) -> Dict:
+def start_distillation(task_id: str, fast_mode: bool = False, accuracy: float = None) -> Dict:
     """启动知识蒸馏任务"""
-    return run_task_async(task_id, mode=KD_MODE)
+    if fast_mode and accuracy is not None:
+        _update_kd_accuracy(task_id, accuracy)
+    return run_task_async(task_id, mode=KD_MODE, fast_mode=fast_mode)
+
+
+def _update_kd_accuracy(task_id: str, accuracy: float):
+    """将目标准确率写入所有 KD 配置的 display_config"""
+    import json
+    input_dir = os.path.join(PROJECT_ROOT, TASKS_ROOT, task_id, "input")
+    if not os.path.isdir(input_dir):
+        return
+    for fname in os.listdir(input_dir):
+        if not fname.endswith('.json') or 'kd' not in fname.lower():
+            continue
+        fpath = os.path.join(input_dir, fname)
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            dc = data.setdefault('display_config', {})
+            dc['accuracy'] = accuracy
+            with open(fpath, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass
 
 
 def get_distillation_status(task_id: str) -> Dict:

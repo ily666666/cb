@@ -171,12 +171,12 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { prunePow2Api } from '../api'
 import { ElMessage } from 'element-plus'
 import WebTerminal from '../components/WebTerminal.vue'
 
-const demoMode = inject('demoMode', ref(false))
+const demoMode = ref(false)
 
 const method = ref(null)
 const models = ref([])
