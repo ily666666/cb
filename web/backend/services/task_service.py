@@ -140,10 +140,7 @@ def get_task_timing(task_id: str) -> Optional[Dict]:
         return None
 
     steps = {}
-    totals = {k: 0.0 for k in [
-        'total_data_load', 'total_preprocess', 'total_data_save',
-        'total_inference', 'total_overhead', 'total_transfer'
-    ]}
+    total_time = 0.0
 
     for step_dir in sorted(os.listdir(output_root)):
         timing_path = os.path.join(output_root, step_dir, 'timing.json')
@@ -152,17 +149,19 @@ def get_task_timing(task_id: str) -> Optional[Dict]:
         try:
             with open(timing_path, 'r', encoding='utf-8') as f:
                 t = json.load(f)
-            steps[step_dir] = t
-            totals['total_data_load'] += t.get('data_load_time', 0)
-            totals['total_preprocess'] += t.get('preprocess_time', 0)
-            totals['total_data_save'] += t.get('data_save_time', 0)
-            totals['total_inference'] += t.get('inference_time', 0)
-            totals['total_overhead'] += t.get('model_load_time', 0) + t.get('warmup_time', 0)
-            totals['total_transfer'] += t.get('transfer_time', 0)
+            if 'step_time' in t:
+                st = t['step_time']
+            else:
+                st = sum(t.get(k, 0) for k in [
+                    'data_load_time', 'preprocess_time', 'data_save_time',
+                    'transfer_time', 'model_load_time', 'warmup_time', 'inference_time'
+                ])
+            steps[step_dir] = {'step_time': st}
+            total_time += st
         except Exception:
             pass
 
-    return {"steps": steps, **totals}
+    return {"steps": steps, "total_time": total_time}
 
 
 def clean_task_output(task_id: str) -> Dict:
@@ -190,7 +189,8 @@ def clean_task_output(task_id: str) -> Dict:
 
 
 def run_task_async(task_id: str, mode: str = None, step: str = None,
-                   config: str = None, edge_id: int = None, summary: bool = False) -> Dict:
+                   config: str = None, edge_id: int = None, summary: bool = False,
+                   fast_mode: bool = False) -> Dict:
     if task_id in _running_tasks and _running_tasks[task_id].get("status") == "running":
         return {"status": "error", "message": f"任务 {task_id} 正在运行中"}
 
@@ -227,6 +227,8 @@ def run_task_async(task_id: str, mode: str = None, step: str = None,
 
     def _run():
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        if fast_mode:
+            env["FAST_MODE"] = "1"
         try:
             popen_kwargs = dict(
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

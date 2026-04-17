@@ -19,8 +19,8 @@
     "_注释_display_config": "模拟配置。time=传输+推理总耗时(秒), accuracy=最终协同准确率(%)",
     "display_config": {
         "simulate_realtime": false,
-        "time": 2.77,
-        "accuracy": 12.29,
+        "time": 0.67,
+        "accuracy": 0.29,
         "data_size_mb": 0.0
     }
 }

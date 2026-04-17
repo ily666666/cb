@@ -82,6 +82,7 @@ export const distillationApi = {
 export const compareApi = {
   tasks: () => api.get('/compare/tasks'),
   updateLabel: (taskId, label) => api.put(`/compare/tasks/${taskId}/label`, { label }),
+  updateSummary: (taskId, data) => api.put(`/compare/tasks/${taskId}/summary`, data),
   updateStepConfig: (taskId, stepName, config) => api.put(`/compare/tasks/${taskId}/steps/${stepName}/config`, config),
   clone: (sourceTaskId, newTaskId, label) => api.post('/compare/clone', { source_task_id: sourceTaskId, new_task_id: newTaskId, label }),
   deleteTask: (taskId) => api.delete(`/compare/tasks/${taskId}`),

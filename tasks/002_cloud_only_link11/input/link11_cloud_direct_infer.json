@@ -13,7 +13,7 @@
     "display_config": {
         "simulate_realtime": false,
         "data_size_mb": 120.5,
-        "time": 30.51,
+        "time": 100.0,
         "accuracy": 99.68
     }
 }

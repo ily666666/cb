@@ -96,29 +96,18 @@
     </div>
 
     <!-- 齿轮配置对话框 -->
-    <el-dialog v-model="configVisible" title="模拟参数配置" width="580px" destroy-on-close>
-      <el-form size="small" label-position="left" label-width="90px" style="margin-bottom: 16px;">
+    <el-dialog v-model="configVisible" title="参数设置" width="400px" destroy-on-close>
+      <el-form size="small" label-position="left" label-width="90px">
         <el-form-item label="方案名称">
-          <el-input v-model="editLabel" placeholder="自定义名称，留空使用默认" clearable style="width: 320px;" />
+          <el-input v-model="editLabel" placeholder="自定义名称" clearable />
+        </el-form-item>
+        <el-form-item label="总耗时(秒)">
+          <el-input-number v-model="editTime" :min="0" :precision="2" :step="1" style="width: 180px;" />
+        </el-form-item>
+        <el-form-item label="准确率(%)">
+          <el-input-number v-model="editAcc" :min="0" :max="100" :precision="2" :step="0.1" style="width: 180px;" />
         </el-form-item>
       </el-form>
-      <div class="config-step" v-for="step in editSteps" :key="step.step_name">
-        <div class="config-step-name">{{ step.step_name }}</div>
-        <el-form :inline="true" size="small" label-position="left">
-          <el-form-item label="数据量(MB)">
-            <el-input-number v-model="step.display_config.data_size_mb" :min="0" :precision="1"
-              :step="10" style="width: 140px;" />
-          </el-form-item>
-          <el-form-item label="耗时(秒)">
-            <el-input-number v-model="step.display_config.time" :min="0" :precision="2"
-              :step="1" style="width: 140px;" />
-          </el-form-item>
-          <el-form-item label="准确率(%)" v-if="step.display_config.accuracy != null">
-            <el-input-number v-model="step.display_config.accuracy" :min="0" :max="100"
-              :precision="2" :step="0.1" style="width: 140px;" />
-          </el-form-item>
-        </el-form>
-      </div>
       <template #footer>
         <el-button @click="configVisible = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveConfig">保存</el-button>
@@ -171,7 +160,8 @@ const results = ref([])
 const configVisible = ref(false)
 const editTask = ref(null)
 const editLabel = ref('')
-const editSteps = ref([])
+const editTime = ref(0)
+const editAcc = ref(0)
 const saving = ref(false)
 
 const cloneVisible = ref(false)
@@ -259,23 +249,24 @@ function rowClassName({ row }) {
 function openConfig(task) {
   editTask.value = task
   editLabel.value = task.purpose || ''
-  editSteps.value = JSON.parse(JSON.stringify(task.steps))
+  editTime.value = task.total_time || 0
+  editAcc.value = task.accuracy || 0
   configVisible.value = true
 }
 
 async function saveConfig() {
   saving.value = true
   try {
-    if (editLabel.value !== editTask.value.purpose) {
-      await compareApi.updateLabel(editTask.value.task_id, editLabel.value)
-    }
-    for (const step of editSteps.value) {
-      await compareApi.updateStepConfig(editTask.value.task_id, step.step_name, step.display_config)
-    }
+    await compareApi.updateSummary(editTask.value.task_id, {
+      total_time: editTime.value,
+      accuracy: editAcc.value,
+      label: editLabel.value || undefined,
+    })
     const idx = allTasks.value.findIndex(t => t.task_id === editTask.value.task_id)
     if (idx >= 0) {
       if (editLabel.value) allTasks.value[idx].purpose = editLabel.value
-      allTasks.value[idx].steps = JSON.parse(JSON.stringify(editSteps.value))
+      allTasks.value[idx].total_time = editTime.value
+      allTasks.value[idx].accuracy = editAcc.value
     }
     configVisible.value = false
     ElMessage.success('参数已保存')

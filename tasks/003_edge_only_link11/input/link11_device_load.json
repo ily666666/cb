@@ -1,19 +1,14 @@
 {
-    "_注释_data_path":    "数据路径，可以是单个.pkl文件 或 包含多个batch_xxxx.pkl的目录",
+    "_注释_data_path": "数据路径，可以是单个.pkl文件 或 包含多个batch_xxxx.pkl的目录",
     "data_path": "/home/user/coderepository/cb/dataset/link11",
-
     "_注释_dataset_type": "数据集类型",
     "dataset_type": "link11",
-
-    "_注释_batch_size":   "推理时每批送入模型的样本数",
+    "_注释_batch_size": "推理时每批送入模型的样本数",
     "batch_size": 32,
-
-    "_注释_max_files":    "目录模式下最多加载几个batch文件，null=全部加载",
+    "_注释_max_files": "目录模式下最多加载几个batch文件，null=全部加载",
     "max_files": 10,
-
-    "_注释_num_batches":  "限制总样本数=num_batches×batch_size，null=不限制",
+    "_注释_num_batches": "限制总样本数=num_batches×batch_size，null=不限制",
     "num_batches": null,
-
     "_注释_display_config": "模拟配置。存在时跳过真实加载。data_size_mb=数据量(MB), time=耗时(秒)",
     "display_config": {
         "simulate_realtime": false,

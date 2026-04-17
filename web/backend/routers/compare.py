@@ -20,6 +20,12 @@ class LabelUpdate(BaseModel):
     label: str
 
 
+class SummaryUpdate(BaseModel):
+    total_time: float
+    accuracy: Optional[float] = None
+    label: Optional[str] = None
+
+
 class CloneRequest(BaseModel):
     source_task_id: str
     new_task_id: str
@@ -34,6 +40,11 @@ async def get_compare_tasks():
 @router.put("/tasks/{task_id}/label")
 async def update_label(task_id: str, body: LabelUpdate):
     return compare_service.update_task_label(task_id, body.label)
+
+
+@router.put("/tasks/{task_id}/summary")
+async def update_summary(task_id: str, body: SummaryUpdate):
+    return compare_service.update_task_summary(task_id, body.total_time, body.accuracy, body.label)
 
 
 @router.put("/tasks/{task_id}/steps/{step_name}/config")

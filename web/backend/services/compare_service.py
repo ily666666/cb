@@ -120,6 +120,13 @@ def get_tasks_for_compare() -> List[Dict]:
         if not steps:
             continue
 
+        total_time = sum(s['display_config'].get('time', 0) for s in steps)
+        last_acc = None
+        for s in steps:
+            a = s['display_config'].get('accuracy')
+            if a is not None:
+                last_acc = a
+
         result.append({
             'task_id': task_id,
             'dataset': dataset,
@@ -128,6 +135,8 @@ def get_tasks_for_compare() -> List[Dict]:
             'mode_suffix': mode_suffix,
             'steps': steps,
             'step_count': len(steps),
+            'total_time': round(total_time, 2),
+            'accuracy': last_acc,
         })
 
     return result
@@ -144,6 +153,54 @@ def update_task_label(task_id: str, label: str) -> Dict:
     else:
         labels.pop(task_id, None)
     _save_labels(labels)
+    return {'status': 'ok'}
+
+
+def update_task_summary(task_id: str, total_time: float, accuracy: float = None, label: str = None) -> Dict:
+    """更新方案的总时间和准确率，按比例分摊时间到各步骤"""
+    input_dir = os.path.join(_tasks_dir(), task_id, 'input')
+    if not os.path.isdir(input_dir):
+        return {'status': 'error', 'message': f'任务不存在: {task_id}'}
+
+    if label is not None:
+        update_task_label(task_id, label)
+
+    step_files = []
+    old_total = 0.0
+    for fname in sorted(os.listdir(input_dir)):
+        if not fname.endswith('.json'):
+            continue
+        fpath = os.path.join(input_dir, fname)
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            dc = data.get('display_config')
+            if dc is None:
+                continue
+            t = dc.get('time', 0)
+            step_files.append((fpath, data, t))
+            old_total += t
+        except Exception:
+            pass
+
+    if not step_files:
+        return {'status': 'error', 'message': '无可配置步骤'}
+
+    for fpath, data, old_t in step_files:
+        dc = data['display_config']
+        if old_total > 0:
+            dc['time'] = round(total_time * old_t / old_total, 2)
+        else:
+            dc['time'] = round(total_time / len(step_files), 2)
+
+    last_fpath, last_data, _ = step_files[-1]
+    if accuracy is not None:
+        last_data['display_config']['accuracy'] = accuracy
+
+    for fpath, data, _ in step_files:
+        with open(fpath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
     return {'status': 'ok'}
 
 
@@ -215,34 +272,15 @@ def delete_task(task_id: str) -> Dict:
 
 
 def get_compare_results(task_ids: List[str]) -> List[Dict]:
-    """获取多个任务的运行结果或配置值，用于对比"""
+    """直接从 display_config 读取配置值用于对比"""
     labels = _load_labels()
     results = []
     for task_id in task_ids:
-        output_dir = os.path.join(_tasks_dir(), task_id, 'output')
         input_dir = os.path.join(_tasks_dir(), task_id, 'input')
 
         total_time = 0.0
-        step_times = []
-        has_output = False
-
-        if os.path.isdir(output_dir):
-            for step_dir in sorted(os.listdir(output_dir)):
-                timing_path = os.path.join(output_dir, step_dir, 'timing.json')
-                if not os.path.exists(timing_path):
-                    continue
-                has_output = True
-                try:
-                    with open(timing_path, 'r', encoding='utf-8') as f:
-                        t = json.load(f)
-                    st = t.get('step_time', 0)
-                    total_time += st
-                    step_times.append({'step': step_dir, 'time': round(st, 2)})
-                except Exception:
-                    pass
-
         final_accuracy = None
-        config_time = 0.0
+
         if os.path.isdir(input_dir):
             for fname in sorted(os.listdir(input_dir)):
                 if not fname.endswith('.json'):
@@ -253,12 +291,9 @@ def get_compare_results(task_ids: List[str]) -> List[Dict]:
                     dc = cfg.get('display_config', {})
                     if dc.get('accuracy') is not None:
                         final_accuracy = dc['accuracy']
-                    config_time += dc.get('time', 0)
+                    total_time += dc.get('time', 0)
                 except Exception:
                     pass
-
-        if not has_output:
-            total_time = config_time
 
         d_lower = task_id.lower()
         purpose = task_id
@@ -275,8 +310,6 @@ def get_compare_results(task_ids: List[str]) -> List[Dict]:
             'purpose': purpose,
             'total_time': round(total_time, 2),
             'accuracy': final_accuracy,
-            'steps': step_times,
-            'has_output': has_output,
         })
 
     return results

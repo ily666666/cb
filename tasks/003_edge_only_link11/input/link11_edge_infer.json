@@ -9,12 +9,11 @@
         "parent_folder": "link11_device_load",
         "file_name": "data_batch.pkl"
     },
-
     "_注释_display_config": "模拟配置。data_size_mb=数据量(MB), time=传输+推理总耗时(秒), accuracy=准确率(%)",
     "display_config": {
         "simulate_realtime": false,
         "data_size_mb": 120.5,
-        "time": 9.80,
-        "accuracy": 96.66
+        "time": 9.8,
+        "accuracy": 96.64
     }
 }
