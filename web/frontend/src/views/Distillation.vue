@@ -87,34 +87,34 @@
     </div>
 
     <!-- 模型参数量对比 -->
-    <div v-if="selectedTask && teacherModel">
+    <div v-if="selectedTask && cfg.teacherMb > 0">
       <div class="card compact">
         <div class="card-title"><el-icon><DataAnalysis /></el-icon> 模型参数量对比</div>
         <div class="param-compare">
           <div class="param-model teacher">
             <div class="param-role">教师模型（云侧）</div>
-            <div class="param-size">{{ teacherModel.size_mb }} MB</div>
-            <div class="param-count">≈ {{ formatParamCount(teacherModel) }} 参数</div>
+            <div class="param-size">{{ cfg.teacherMb }} MB</div>
+            <div class="param-count">≈ {{ fmtParams(cfg.teacherMb) }} 参数</div>
           </div>
           <div class="param-arrow">
-            <div class="compress-ratio">{{ compressionRatio }}%</div>
+            <div class="compress-ratio">{{ cfg.ratio }}%</div>
             <div class="compress-detail">↓ 压缩</div>
           </div>
           <div class="param-model student">
             <div class="param-role">学生模型（边侧）</div>
-            <div class="param-size">{{ studentModel.size_mb }} MB</div>
-            <div class="param-count">≈ {{ formatParamCount(studentModel) }} 参数</div>
+            <div class="param-size">{{ studentMb }} MB</div>
+            <div class="param-count">≈ {{ fmtParams(studentMb) }} 参数</div>
           </div>
         </div>
         <div class="param-bar-wrap">
           <div class="param-bar-label">教师</div>
           <div class="param-bar"><div class="param-bar-fill teacher" style="width: 100%"></div></div>
-          <span class="param-bar-val">{{ teacherModel.size_mb }} MB</span>
+          <span class="param-bar-val">{{ cfg.teacherMb }} MB</span>
         </div>
         <div class="param-bar-wrap">
           <div class="param-bar-label">学生</div>
-          <div class="param-bar"><div class="param-bar-fill student" :style="{ width: studentRatioPercent + '%' }"></div></div>
-          <span class="param-bar-val">{{ studentModel.size_mb }} MB</span>
+          <div class="param-bar"><div class="param-bar-fill student" :style="{ width: barPercent + '%' }"></div></div>
+          <span class="param-bar-val">{{ studentMb }} MB</span>
         </div>
       </div>
     </div>
@@ -130,20 +130,20 @@
       </div>
     </div>
 
-    <el-dialog v-model="demoConfigVisible" title="参数设置" width="360px" destroy-on-close>
+    <el-dialog v-model="demoConfigVisible" title="参数设置" width="360px">
       <el-form label-width="110px" size="small">
         <el-form-item label="模型压缩率">
-          <el-input-number v-model="compressRatio" :min="10" :max="99.9"
+          <el-input-number v-model="cfg.ratio" :min="10" :max="99.9"
             :precision="1" :step="1" style="width: 150px;" />
           <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
         </el-form-item>
         <el-form-item label="教师模型准确率">
-          <el-input-number v-model="teacherAcc" :min="50" :max="100"
+          <el-input-number v-model="cfg.teacherAcc" :min="50" :max="100"
             :precision="1" :step="0.5" style="width: 150px;" />
           <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
         </el-form-item>
         <el-form-item label="学生模型准确率">
-          <el-input-number v-model="targetAcc" :min="50" :max="100"
+          <el-input-number v-model="cfg.studentAcc" :min="50" :max="100"
             :precision="1" :step="0.5" style="width: 150px;" />
           <span style="margin-left: 6px; color: var(--text-secondary);">%</span>
         </el-form-item>
@@ -156,17 +156,31 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { distillationApi, taskApi } from '../api'
 import { ElMessage } from 'element-plus'
 import WebTerminal from '../components/WebTerminal.vue'
 import { Setting } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 
+const cfg = reactive({
+  teacherMb: 0,
+  ratio: 97.4,
+  teacherAcc: 97.5,
+  studentAcc: 96.5,
+})
+
+const studentMb = computed(() => +(cfg.teacherMb * (1 - cfg.ratio / 100)).toFixed(2))
+const barPercent = computed(() => Math.max(3, 100 - cfg.ratio))
+
+function fmtParams(mb) {
+  const pc = Math.round(mb * 1024 * 1024 / 4)
+  if (pc >= 1_000_000) return (pc / 1_000_000).toFixed(2) + ' M'
+  if (pc >= 1_000) return (pc / 1_000).toFixed(1) + ' K'
+  return pc.toString()
+}
+
 const demoMode = ref(false)
-const teacherAcc = ref(97.5)
-const targetAcc = ref(96.5)
-const compressRatio = ref(97.4)
 const demoConfigVisible = ref(false)
 const tasks = ref([])
 const selectedTask = ref('')
@@ -174,30 +188,9 @@ const running = ref(false)
 const taskResult = ref('')
 const wsTaskId = ref('')
 const terminalRef = ref(null)
-const outputModels = ref([])
 const kdHistory = ref(null)
 const chartRefs = ref({})
 const chartInstances = []
-
-const teacherModel = computed(() => outputModels.value.find(m => m.role === 'teacher'))
-const studentModel = computed(() => {
-  const t = teacherModel.value
-  if (!t || !t.size_mb) return null
-  const ratio = compressRatio.value / 100
-  const sMb = +(t.size_mb * (1 - ratio)).toFixed(2)
-  const tpc = t.param_count || Math.round(t.size_mb * 1024 * 1024 / 4)
-  const spc = Math.round(tpc * (1 - ratio))
-  return { size_mb: sMb, param_count: spc }
-})
-const compressionRatio = computed(() => compressRatio.value.toFixed(1))
-const studentRatioPercent = computed(() => Math.max(3, 100 - compressRatio.value))
-
-function formatParamCount(model) {
-  const pc = model.param_count || Math.round(model.size_mb / 4 * 1024 * 1024)
-  if (pc >= 1_000_000) return (pc / 1_000_000).toFixed(2) + ' M'
-  if (pc >= 1_000) return (pc / 1_000).toFixed(1) + ' K'
-  return pc.toString()
-}
 
 function onTaskSelect(row) {
   if (row) selectedTask.value = row.task_id
@@ -219,7 +212,9 @@ async function loadTaskDetails(taskId) {
       distillationApi.models(taskId),
       distillationApi.history(taskId),
     ])
-    outputModels.value = modelsRes.models || []
+    const models = modelsRes.models || []
+    const t = models.find(m => m.role === 'teacher')
+    if (t && t.size_mb > 0) cfg.teacherMb = t.size_mb
     kdHistory.value = histRes.history
     if (kdHistory.value) {
       await nextTick()
@@ -283,7 +278,7 @@ async function startDistillation() {
   taskResult.value = ''
   try {
     const res = await distillationApi.start(selectedTask.value, demoMode.value,
-      demoMode.value ? targetAcc.value : null, demoMode.value ? teacherAcc.value : null)
+      demoMode.value ? cfg.studentAcc : null, demoMode.value ? cfg.teacherAcc : null)
     if (res.status === 'error') {
       ElMessage.error(res.message)
       return
@@ -320,7 +315,6 @@ watch(selectedTask, (taskId) => {
   wsTaskId.value = ''
   taskResult.value = ''
   running.value = false
-  outputModels.value = []
   kdHistory.value = null
   loadTaskDetails(taskId)
 })
